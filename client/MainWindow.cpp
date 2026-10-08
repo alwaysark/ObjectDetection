@@ -785,10 +785,16 @@ void MainWindow::closeEvent(QCloseEvent *event) {
         }
     }
     saveConfig();
-    // 先断开检测线程的所有信号，再停线程：防止 wait() 返回后、对象析构前，
-    // 事件队列里还残留跨线程排队帧（frameReady 等）在 MainWindow 析构后投递，
-    // 触发 Qt 断言 "Called object is not of the correct type"（退出时弹 Debug Error 弹窗）
+    // 掐断所有指向本窗口的跨对象信号（检测线程 + 告警上报客户端）。
+    // 关键：~QObject(MainWindow) 删除子对象时，AlarmReporter 的 socket 析构会发
+    // stateChanged → connectedChanged，若这条信号还连着本窗口，槽会投递到已"降级"
+    // 的 MainWindow 上，触发 Qt 断言弹窗（Called object is not of the correct type）。
+    // 检测线程同理：wait() 之后事件队列里可能还残留排队帧。
     disconnect(m_Detection, nullptr, this, nullptr);
+    if (m_Reporter) {
+        disconnect(m_Reporter, nullptr, this, nullptr);
+        m_Reporter->disconnectFromServer();   // 主动断开（顺便停掉自动重连定时器）
+    }
     m_Detection->StopThread();   // 通知线程退出并等它收尾
     m_Detection->wait();         // 等它收完尾（最多约 200ms）
     event->accept();
