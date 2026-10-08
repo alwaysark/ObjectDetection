@@ -70,7 +70,7 @@ if (WIN32)
     get_filename_component(QT_PLUGINS_DIR "${Qt6Core_DIR}/../../../plugins" ABSOLUTE)
 
     # 拷贝 Qt 运行库 DLL（Multimedia 依赖 Network 也要，否则加载期直接起不来）
-    foreach (QT_LIB Core Gui Widgets Multimedia Network)
+    foreach (QT_LIB Core Gui Widgets Multimedia Network Sql PrintSupport)
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "$<TARGET_FILE:Qt6::${QT_LIB}>"
@@ -127,6 +127,19 @@ if (WIN32)
             COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_SOURCE_DIR}/need"
             "$<TARGET_FILE_DIR:${PROJECT_NAME}>/need")
+
+    # 拷贝 SQLite 数据库驱动插件（AlarmStore 的 QSQLITE 运行时按需加载，缺了打不开库）
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:${PROJECT_NAME}>/plugins/sqldrivers/")
+    foreach (SQL_NAME qsqlite.dll qsqlited.dll)
+        if (EXISTS "${QT_PLUGINS_DIR}/sqldrivers/${SQL_NAME}")
+            add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${QT_PLUGINS_DIR}/sqldrivers/${SQL_NAME}"
+                    "$<TARGET_FILE_DIR:${PROJECT_NAME}>/plugins/sqldrivers/")
+        endif ()
+    endforeach (SQL_NAME)
 endif ()
 
 # 拷贝 Multimedia 音频后端插件（QSoundEffect 播警报必需；Debug 构建加载 d 后缀插件）
