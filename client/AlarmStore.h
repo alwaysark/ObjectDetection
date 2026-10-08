@@ -15,8 +15,8 @@
 //   count       该次告警检出的目标总数
 //   snapshot    快照 png 路径（可空字符串）
 //
-#ifndef FIRESMOKEDETECTION_ALARMMSTORE_H
-#define FIRESMOKEDETECTION_ALARMMSTORE_H
+#ifndef FIRESMOKEDETECTION_ALARMSTORE_H
+#define FIRESMOKEDETECTION_ALARMSTORE_H
 
 #include <QObject>
 #include <QSqlDatabase>
@@ -45,7 +45,8 @@ public:
     // 插入一条告警记录（单条事务，失败静默返回 false——告警记录丢一条不能影响检测主流程）
     bool append(const AlarmRecord& r);
 
-    // 查询某一天的告警（给 QTableView 的 model）。空日期 = 查全部
+    // 查询某一天的告警（给 QTableView 的 model）。空日期 = 查全部。
+    // 返回的是内部复用的同一个 model（重复 setQuery 刷新），调用方不得 delete
     QSqlQueryModel* queryByDay(const QDate& day);
 
     // 统计信息（界面状态栏/日志用）
@@ -53,6 +54,7 @@ public:
 
 private:
     QSqlDatabase m_db;       // 命名连接（默认连接留给可能出现的其他用途，避免冲突）
+    QSqlQueryModel* m_historyModel = nullptr;   // 历史查询复用的模型（避免反复 new 泄漏式堆积）
 };
 
-#endif //FIRESMOKEDETECTION_ALARMMSTORE_H
+#endif //FIRESMOKEDETECTION_ALARMSTORE_H

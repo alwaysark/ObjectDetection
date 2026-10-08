@@ -18,7 +18,7 @@
 // 可靠性机制（三个都是面试常问点，实现就在 .cpp 里）：
 //   - 粘包/断包：readyRead 只往 m_rxBuf 追加字节，按"帧头→帧长→够不够"循环切帧；
 //   - 心跳保活：QTimer 每 30s 发一帧心跳，连续 2 个周期没收到应答判定断线；
-//   - 断线重连：状态机 Offline→Connecting→Online，断线后 5s 自动重连。
+//   - 断线重连：状态机 Offline→Connecting→Online，断线后 5s 自动重连（主动断开不重连）。
 //
 // 线程约定：全部在 UI 线程使用（QTcpSocket 异步非阻塞，不会卡界面）。
 //
@@ -65,12 +65,12 @@ private:
     State m_state = Offline;
 
     QTcpSocket m_socket;
-    QTimer     m_heartbeatTimer;    // 30s 周期：发心跳
+    QTimer     m_heartbeatTimer;    // 30s 周期：发心跳 + 清点漏答（超时判定就在这里做）
     QTimer     m_reconnectTimer;    // 5s 后重连
-    QTimer     m_watchdogTimer;     // 心跳超时监视
     QString    m_host;
     quint16    m_port = 0;
     int        m_missedAcks = 0;    // 连续未收到应答的心跳次数
+    bool       m_manualClose = false;  // 主动断开标志：抑制断开后的自动重连
     QByteArray m_rxBuf;             // 接收缓冲（拆帧用）
 };
 

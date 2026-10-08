@@ -20,11 +20,9 @@ AlarmReporter::AlarmReporter(QObject* parent) : QObject(parent) {
     connect(&m_socket, &QTcpSocket::readyRead, this, &AlarmReporter::onReadyRead);
     connect(&m_socket, &QTcpSocket::stateChanged, this, &AlarmReporter::onStateChanged);
 
-    // 心跳节拍：每 30s 发一帧；watchdog 每 30s 醒来清点"漏答"次数
+    // 心跳节拍：每 30s 发一帧并清点"漏答"次数（连续 2 次没应答就判死，见 onHeartbeatTick）
     m_heartbeatTimer.setInterval(30 * 1000);
     connect(&m_heartbeatTimer, &QTimer::timeout, this, &AlarmReporter::onHeartbeatTick);
-    m_watchdogTimer.setInterval(30 * 1000);
-    m_watchdogTimer.start();
 
     // 断线后延迟 5s 再重连（立即重连在服务端重启的瞬间会撞上拒绝）
     m_reconnectTimer.setSingleShot(true);
@@ -38,6 +36,7 @@ AlarmReporter::AlarmReporter(QObject* parent) : QObject(parent) {
 void AlarmReporter::connectToServer(const QString& host, quint16 port) {
     m_host = host;
     m_port = port;
+    m_manualClose = false;
     m_state = Connecting;
     m_socket.abort();                       // 清掉半开连接
     m_socket.connectToHost(host, port);
@@ -45,8 +44,11 @@ void AlarmReporter::connectToServer(const QString& host, quint16 port) {
 }
 
 void AlarmReporter::disconnectFromServer() {
-    m_reconnectTimer.stop();                // 主动断开不再自动重连
+    m_manualClose = true;                   // 主动断开：抑制 onStateChanged 里的自动重连
+    m_reconnectTimer.stop();
+    m_heartbeatTimer.stop();
     m_socket.disconnectFromHost();
+    m_socket.abort();                       // 确保立刻落回 UnconnectedState
 }
 
 void AlarmReporter::onStateChanged(QAbstractSocket::SocketState s) {
@@ -59,8 +61,8 @@ void AlarmReporter::onStateChanged(QAbstractSocket::SocketState s) {
             emit connectedChanged(false);
         m_state = Offline;
         m_heartbeatTimer.stop();
-        if (!m_host.isEmpty() && !m_reconnectTimer.isActive())
-            m_reconnectTimer.start();       // 自动重连
+        if (!m_manualClose && !m_host.isEmpty() && !m_reconnectTimer.isActive())
+            m_reconnectTimer.start();       // 自动重连（主动断开不重连）
     }
 }
 
@@ -116,41 +118,42 @@ void AlarmReporter::onReadyRead() {
     if (m_rxBuf.size() > 1024 * 1024) m_rxBuf.clear();
 }
 
-// 切帧逻辑：找帧头 → 读帧长 → 数据够不够 → CRC 校验
+// 切帧逻辑：找帧头 → 读帧长 → 数据够不够 → CRC 校验。
+// 用循环不用递归：垃圾字节流下递归深度 = 垃圾字节数，会打穿栈
 bool AlarmReporter::tryParseFrame(QByteArray& outFrame) {
-    if (m_rxBuf.size() < HEADER_SIZE) return false;
+    for (;;) {
+        if (m_rxBuf.size() < HEADER_SIZE) return false;
 
-    // ① 同步帧头（前两个字节不是 AA 55 就逐字节丢弃重找）
-    if (quint8(m_rxBuf[0]) != FRAME_MAGIC0 || quint8(m_rxBuf[1]) != FRAME_MAGIC1) {
-        m_rxBuf.remove(0, 1);
-        return tryParseFrame(outFrame);             // 递归继续找（帧头错位常见于半包重连后）
+        // ① 同步帧头（前两个字节不是 AA 55 就逐字节丢弃重找）
+        if (quint8(m_rxBuf[0]) != FRAME_MAGIC0 || quint8(m_rxBuf[1]) != FRAME_MAGIC1) {
+            m_rxBuf.remove(0, 1);                   // 帧头错位：滑过一个字节继续找
+            continue;
+        }
+
+        // ② 帧长（小端）：命令字+数据域+CRC
+        const int bodyLen = quint8(m_rxBuf[2]) | (quint8(m_rxBuf[3]) << 8);
+        const int total   = HEADER_SIZE + bodyLen - 1;  // 帧头2+帧长2 + 命令字1+数据域+CRC2
+        if (bodyLen < 1 + CRC_SIZE || total > 64 * 1024) {
+            m_rxBuf.remove(0, 2);                   // 非法帧长：当垃圾丢掉帧头继续找
+            continue;
+        }
+
+        // ③ 数据够不够一帧（断包：不够就留着等下一次 readyRead）
+        if (m_rxBuf.size() < total) return false;
+
+        // ④ CRC 校验：覆盖 命令字+数据域
+        const QByteArray body = m_rxBuf.mid(4, bodyLen - CRC_SIZE);
+        const int crcPos = 4 + bodyLen - CRC_SIZE;
+        const quint16 crcRecv = quint8(m_rxBuf[crcPos]) | (quint8(m_rxBuf[crcPos + 1]) << 8);
+        m_rxBuf.remove(0, total);                   // 无论校验过不过，这帧都消费掉
+
+        if (crc16Modbus(body) != crcRecv) {
+            qDebug() << "AlarmReporter: CRC mismatch, drop frame";
+            continue;                               // 丢弃坏帧，切后面的
+        }
+        outFrame = body;
+        return true;
     }
-
-    // ② 帧长（小端）：命令字+数据域+CRC
-    const int bodyLen = quint8(m_rxBuf[2]) | (quint8(m_rxBuf[3]) << 8);
-    const int total   = HEADER_SIZE + bodyLen - 1;  // 帧头2+帧长2 + 命令字1+数据域+CRC2
-    if (bodyLen < 1 + CRC_SIZE || total > 64 * 1024) {
-        m_rxBuf.remove(0, 2);                       // 非法帧长：当垃圾丢掉帧头继续找
-        return tryParseFrame(outFrame);
-    }
-
-    // ③ 数据够不够一帧（断包：不够就留着等下一次 readyRead）
-    if (m_rxBuf.size() < total) return false;
-
-    // ④ CRC 校验：覆盖 命令字+数据域
-    const QByteArray body = m_rxBuf.mid(4, bodyLen - CRC_SIZE);
-    const quint16 crcCalc = crc16Modbus(body);
-    const int crcPos = 4 + bodyLen - CRC_SIZE;
-    const quint16 crcRecv = quint8(m_rxBuf[crcPos]) | (quint8(m_rxBuf[crcPos + 1]) << 8);
-    m_rxBuf.remove(0, total);                       // 无论校验过不过，这帧都消费掉
-
-    if (crcCalc != crcRecv) {
-        qDebug() << "AlarmReporter: CRC mismatch, drop frame";
-        return tryParseFrame(outFrame);             // 丢弃坏帧，继续切后面的
-    }
-
-    outFrame = body;
-    return true;
 }
 
 // ---- 组帧：帧头 + 帧长 + 命令字 + 数据域 + CRC ----

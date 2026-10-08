@@ -63,7 +63,8 @@ bool AlarmStore::append(const AlarmRecord& r) {
 }
 
 QSqlQueryModel* AlarmStore::queryByDay(const QDate& day) {
-    auto* model = new QSqlQueryModel(this);
+    if (!m_historyModel)
+        m_historyModel = new QSqlQueryModel(this);
     QSqlQuery q(m_db);
     if (day.isValid()) {
         // ISO 字符串的字典序 == 时间序，按前缀匹配就能圈出"这一天"
@@ -78,14 +79,14 @@ QSqlQueryModel* AlarmStore::queryByDay(const QDate& day) {
                 "FROM alarms ORDER BY time DESC LIMIT 500"));
     }
     q.exec();
-    model->setQuery(std::move(q));
-    model->setHeaderData(0, Qt::Horizontal, tr("编号"));
-    model->setHeaderData(1, Qt::Horizontal, tr("时间"));
-    model->setHeaderData(2, Qt::Horizontal, tr("类别"));
-    model->setHeaderData(3, Qt::Horizontal, tr("置信度%"));
-    model->setHeaderData(4, Qt::Horizontal, tr("目标数"));
-    model->setHeaderData(5, Qt::Horizontal, tr("快照"));
-    return model;
+    m_historyModel->setQuery(std::move(q));   // 重复 setQuery 即刷新内容，不产生新模型
+    m_historyModel->setHeaderData(0, Qt::Horizontal, tr("编号"));
+    m_historyModel->setHeaderData(1, Qt::Horizontal, tr("时间"));
+    m_historyModel->setHeaderData(2, Qt::Horizontal, tr("类别"));
+    m_historyModel->setHeaderData(3, Qt::Horizontal, tr("置信度%"));
+    m_historyModel->setHeaderData(4, Qt::Horizontal, tr("目标数"));
+    m_historyModel->setHeaderData(5, Qt::Horizontal, tr("快照"));
+    return m_historyModel;
 }
 
 int AlarmStore::totalCount() const {

@@ -80,7 +80,7 @@ MainWindow::~MainWindow() = default;
 
 // ==================== 界面搭建（手写布局，对应 Python 的 setupUi） ====================
 void MainWindow::buildUi() {
-    setWindowTitle(QStringLiteral("ObjectDetection OnnxRT — 实时目标检测"));
+    setWindowTitle(QStringLiteral("SmokeFlameDetection — 智能监控上位机"));
     resize(900,500);
 
     QWidget *central   = new QWidget(this);
@@ -90,24 +90,34 @@ void MainWindow::buildUi() {
     layout_1 -> addLayout(layout_2,3);
     layout_1 -> addLayout(layout_3,1);
 
-    //显示区域
+    //显示区域：上面画面，下面 日志/统计 选项卡（页钮放左边，横向空间利用更好）
     m_TuXiangShuChu = new QLabel();
     m_TuXiangShuChu->setAlignment(Qt::AlignCenter);
     m_TuXiangShuChu->setStyleSheet("background:#202020;color:#dddddd;");
     m_TuXiangShuChu->setText("等待输入源...");
-    layout_2 -> addWidget(m_TuXiangShuChu,9);
-    QHBoxLayout *layout_4 = new QHBoxLayout;
-    layout_2 -> addLayout(layout_4,1);
-    m_QingChu = new QPushButton("清除");
-    m_BaoCunRiZhi = new QPushButton("保存日志");
-    QVBoxLayout *layout_5 = new QVBoxLayout;
-    layout_5 -> addWidget(m_QingChu);
-    layout_5 -> addWidget(m_BaoCunRiZhi);
+    layout_2 -> addWidget(m_TuXiangShuChu,7);
+
+    m_BottomTabs = new QTabWidget();
+    m_BottomTabs->setTabPosition(QTabWidget::West);      //页面切换按钮放左边
+    m_BottomTabs->setDocumentMode(true);                 //去掉页框描边，嵌在底部更干净
+    layout_2 -> addWidget(m_BottomTabs,4);
+
+    // —— 日志页：QTextBrowser + 右侧操作按钮 ——
+    QWidget *tabRiZhi = new QWidget(m_BottomTabs);
+    QHBoxLayout *layout_4 = new QHBoxLayout(tabRiZhi);
+    layout_4->setContentsMargins(4,4,4,4);
     m_RiZhi = new QTextBrowser();
     // 日志限行：超过 300 条自动丢最旧的，防止长时间运行后 QTextBrowser 被撑卡
     m_RiZhi->document()->setMaximumBlockCount(300);
     layout_4 -> addWidget(m_RiZhi,9);
+    QVBoxLayout *layout_5 = new QVBoxLayout;
+    m_QingChu = new QPushButton("清除");
+    m_BaoCunRiZhi = new QPushButton("保存日志");
+    layout_5 -> addWidget(m_QingChu);
+    layout_5 -> addWidget(m_BaoCunRiZhi);
+    layout_5 -> addStretch();
     layout_4 -> addLayout(layout_5,1);
+    m_BottomTabs -> addTab(tabRiZhi,"日志");
 
     //操作区域
     m_tabWidget = new QTabWidget();
@@ -119,26 +129,32 @@ void MainWindow::buildUi() {
     m_tabWidget -> addTab(tabShuRu,"输入");
     m_tabWidget -> addTab(tabShuChu,"输出");
 
-    //统计页：QCustomPlot 实时曲线（目标数 + 最高置信度，滚动窗口 60 秒）
-    QWidget *tabTongJi = new QWidget(m_tabWidget);
+    // —— 统计页：QCustomPlot 实时曲线（目标数 + 最高置信度，滚动窗口 60 秒）——
+    // 放到底部宽幅区域：横轴（时间）有足够横向空间，不再被窄高的右栏挤成立图
+    QWidget *tabTongJi = new QWidget(m_BottomTabs);
     QVBoxLayout *TongJiLayout = new QVBoxLayout(tabTongJi);
+    TongJiLayout->setContentsMargins(4,4,4,4);
     m_Plot = new QCustomPlot(tabTongJi);
-    m_Plot->addGraph();                                  // graph0：目标数
-    m_Plot->graph(0)->setPen(QPen(Qt::red));
+    m_Plot->addGraph();                                  // graph0：目标数（左轴）
+    m_Plot->graph(0)->setPen(QPen(QColor(220,60,60)));
+    m_Plot->graph(0)->setBrush(QBrush(QColor(220,60,60,30)));   // 曲线下淡填充，趋势一眼可辨
     m_Plot->graph(0)->setName("目标数");
     m_Plot->addGraph(m_Plot->xAxis, m_Plot->yAxis2);     // graph1：最高置信度（右轴）
-    m_Plot->graph(1)->setPen(QPen(Qt::blue));
-    m_Plot->graph(1)->setName("置信度");
-    m_Plot->legend->setVisible(true);
+    m_Plot->graph(1)->setPen(QPen(QColor(60,110,220)));
+    m_Plot->graph(1)->setName("置信度%");
     m_Plot->xAxis->setLabel("时间 (s)");
     m_Plot->yAxis->setLabel("目标数");
-    m_Plot->yAxis2->setLabel("置信度");
+    m_Plot->yAxis2->setLabel("置信度%");
     m_Plot->yAxis->setRange(0, 10);
     m_Plot->yAxis2->setRange(0, 100);
     m_Plot->yAxis2->setVisible(true);
-    m_Plot->setInteractions(QCP::iRangeDrag | QCP::iRangeZoom);
+    m_Plot->legend->setVisible(true);
+    m_Plot->legend->setBrush(QBrush(QColor(255,255,255,180)));  // 半透明图例，压在曲线上也不挡
+    m_Plot->axisRect()->insetLayout()->setInsetAlignment(0, Qt::AlignTop|Qt::AlignRight);
+    // 不开拖拽/缩放：检测中每帧都会把 x 轴设回滚动窗口，交互与自动跟随打架
+    m_Plot->setInteractions(QCP::iNone);
     TongJiLayout->addWidget(m_Plot);
-    m_tabWidget -> addTab(tabTongJi,"统计");
+    m_BottomTabs -> addTab(tabTongJi,"统计");
     m_plotClock.start();
     //开始、停止
     QHBoxLayout *layout_Star = new QHBoxLayout;

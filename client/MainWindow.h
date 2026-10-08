@@ -102,6 +102,7 @@ private slots:
 private:
     //主区域
     QLabel *m_TuXiangShuChu = nullptr;
+    QTabWidget *m_BottomTabs = nullptr;      //底部选项卡：日志/统计（页钮在左）
     QTextBrowser *m_RiZhi = nullptr;
     QPushButton *m_QingChu = nullptr;
     QPushButton *m_BaoCunRiZhi = nullptr;
