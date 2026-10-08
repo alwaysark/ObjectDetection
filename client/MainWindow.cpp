@@ -586,7 +586,7 @@ void MainWindow::do_resultReady(const std::vector<DetectionResult> &results) {
         // 只保留最近 5 分钟的数据点，防止长时间运行内存和绘制卡顿
         m_Plot->graph(0)->data()->removeBefore(m_plotSeconds - 300);
         m_Plot->graph(1)->data()->removeBefore(m_plotSeconds - 300);
-        m_Plot->replot(QCustomPlot::rpQueuedReplot);
+        m_Plot->replot(QCustomPlot::rpRefreshHint);   // 同步重绘；rpQueuedReplot 的延迟重绘会在退出时踩已析构对象
     }
 
     if (!m_printResult) return;
@@ -759,6 +759,10 @@ void MainWindow::closeEvent(QCloseEvent *event) {
         }
     }
     saveConfig();
+    // 先断开检测线程的所有信号，再停线程：防止 wait() 返回后、对象析构前，
+    // 事件队列里还残留跨线程排队帧（frameReady 等）在 MainWindow 析构后投递，
+    // 触发 Qt 断言 "Called object is not of the correct type"（退出时弹 Debug Error 弹窗）
+    disconnect(m_Detection, nullptr, this, nullptr);
     m_Detection->StopThread();   // 通知线程退出并等它收尾
     m_Detection->wait();         // 等它收完尾（最多约 200ms）
     event->accept();
