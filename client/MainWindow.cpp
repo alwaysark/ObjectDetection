@@ -28,6 +28,8 @@
 #include <QFile>
 #include <QSettings>
 #include <QUrl>
+#include <QDesktopServices>
+#include <QFileInfo>
 #include <QSoundEffect>
 #include <QCloseEvent>
 #include <QCoreApplication>
@@ -652,15 +654,39 @@ void MainWindow::do_platformOnlineChanged(bool online) {
                       : "告警平台连接断开，5 秒后自动重连...", online ? "black" : "red");
 }
 
-// 告警记录对话框：QTableView + 按日查询 + CSV 导出
+// 告警记录对话框：QTableView + 按日查询 + 双击打开快照
 void MainWindow::do_openAlarmHistory() {
     QDialog dlg(this);
     dlg.setWindowTitle("告警记录");
-    dlg.resize(640, 400);
+    dlg.resize(760, 420);
     auto *lay = new QVBoxLayout(&dlg);
     auto *view = new QTableView(&dlg);
-    view->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    view->setModel(m_AlarmStore->queryByDay(QDate()));    // 空 = 最近 500 条
+
+    auto *model = m_AlarmStore->queryByDay(QDate());      // 空 = 最近 500 条
+    view->setModel(model);
+    // 列宽：时间/类别/置信度/目标数自适应内容，快照列吃掉剩余宽度
+    view->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    view->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    view->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    view->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
+    view->horizontalHeader()->setSectionResizeMode(5, QHeaderView::Stretch);
+    // 快照列只显示文件名（完整路径放 tooltip，悬停可看）
+    const int snapCol = 5;
+    for (int row = 0; row < model->rowCount(); ++row) {
+        const QString path = model->data(model->index(row, snapCol)).toString();
+        if (path.isEmpty()) continue;
+        const QFileInfo fi(path);
+        model->setData(model->index(row, snapCol), fi.fileName(), Qt::DisplayRole);
+        model->setData(model->index(row, snapCol), path, Qt::ToolTipRole);
+    }
+    // 双击快照列 → 用系统默认看图程序打开那张 png
+    connect(view, &QTableView::doubleClicked, this, [this](const QModelIndex &idx) {
+        if (idx.column() != 5) return;
+        const QString path = idx.data(Qt::ToolTipRole).toString();
+        if (!path.isEmpty() && QFile::exists(path))
+            QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+    });
+    view->setEditTriggers(QAbstractItemView::NoEditTriggers);   // 只读
     lay->addWidget(view);
     dlg.exec();
 }
