@@ -115,9 +115,12 @@ private:
     std::atomic_bool m_cfgRequested{false};
 
     // ---- 热参数：UI 写、run 读（单值用 atomic，多字段用锁）----
-    std::atomic_int   m_flipIdx{0}, m_rotateIdx{0};
-    std::atomic<float> m_conf{0.35f}, m_iou{0.35f};
-    std::atomic_bool  m_drawBox{true}, m_showFps{true};
+    std::atomic_int     m_flipIdx{0};
+    std::atomic_int     m_rotateIdx{0};
+    std::atomic<float>  m_conf{0.35f};
+    std::atomic<float>  m_iou{0.35f};
+    std::atomic_bool    m_drawBox{true};
+    std::atomic_bool    m_showFps{true};
     std::mutex        m_colorMtx;
     cv::Scalar        m_boxColor{255, 0, 0};
 

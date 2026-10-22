@@ -503,16 +503,10 @@ void MainWindow::do_BaoCunRiZhi_clicked() {
 }
 
 // ==================== 内部辅助 ====================
-// 带时间戳写一行日志
 void MainWindow::displayLog(const QString &text, const QString &color) {
-    const QString head = QTime::currentTime().toString("HH:mm:ss.zzz") + " >> ";
+    const QString head = QTime::currentTime().toString("HH:mm:ss.zzz") + " >> ";    // 带时间戳写一行日志
     m_RiZhi->append(QString("<font color='%1'>%2%3</font>")
                             .arg(color, head, text.toHtmlEscaped()));
-    // 新日志到来时：若正停在底部则贴最新一行；用户往上翻旧日志则不打扰。
-    // （Qt 的 append 本身带"在底部才跟随"的行为，这里显式钉一下，不依赖版本细节）
-    QScrollBar *sb = m_RiZhi->verticalScrollBar();
-    if (sb->value() >= sb->maximum())
-        sb->setValue(sb->maximum());
 }
 
 // ==================== 检测线程信号的接收槽 ====================
@@ -537,7 +531,10 @@ void MainWindow::do_resultReady(const std::vector<DetectionResult> &results) {
     for (auto it = grouped.constBegin(); it != grouped.constEnd(); ++it) {
         QStringList ss;
         for (double s : it.value()) ss << QString::number(s, 'f', 1) + "%";
-        parts << QString("%1 ×%2 (%3)").arg(it.key()).arg(it.value().size()).arg(ss.join(", "));
+        parts << QString("%1 ×%2 (%3)")
+                        .arg(it.key())
+                        .arg(it.value().size())
+                        .arg(ss.join(", "));        //输出格式是：fire ×1 (51.9%)
     }
     displayLog(parts.join("；"));
 }

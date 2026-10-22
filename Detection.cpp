@@ -166,7 +166,7 @@ void Detection::run() {
         if (!m_Source->read(frame)) {
             emit sourceFinished();
             stopRecord();         //停止录像
-            m_Source.reset();     // 回到无源待命（Python 版这里停整个线程，我们常驻更稳）
+            m_Source.reset();     // 回到无源待命
             continue;
         }
 
