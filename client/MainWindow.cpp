@@ -80,7 +80,7 @@ MainWindow::~MainWindow() = default;
 
 // ==================== 界面搭建（手写布局，对应 Python 的 setupUi） ====================
 void MainWindow::buildUi() {
-    setWindowTitle(QStringLiteral("SmokeFlameDetection — 智能监控上位机"));
+    setWindowTitle(QStringLiteral("FireSmokeDetection — 智能监控上位机"));
     resize(900,500);
 
     QWidget *central   = new QWidget(this);
@@ -730,7 +730,7 @@ void MainWindow::do_infoMessage(const QString &msg) {
 
 // ==================== 配置持久化（QSettings，对应 Python 的 cfg 类） ====================
 void MainWindow::loadConfig() {
-    QSettings s("FireSmokeDetection", "ObjectDetectionOnnxRT");
+    QSettings s("FireSmokeDetection", "FireSmokeDetectionClient");
     const QString appDir = QCoreApplication::applicationDirPath();
 
     m_QuanZhong->setText(s.value("modelPath", appDir + "/need/m0.9.onnx").toString());
@@ -769,7 +769,7 @@ void MainWindow::loadConfig() {
 }
 
 void MainWindow::saveConfig() {
-    QSettings s("FireSmokeDetection", "ObjectDetectionOnnxRT");
+    QSettings s("FireSmokeDetection", "FireSmokeDetectionClient");
     s.setValue("modelPath", m_QuanZhong->text());
     s.setValue("outDir", m_BaoCun->text());
     s.setValue("sourceFile", m_WenJian->text());

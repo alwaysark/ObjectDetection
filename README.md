@@ -1,9 +1,9 @@
-# SmokeFlameDetection
+# FireSmokeDetection
 
 智能监控上位机（Qt6 + OpenCV + YOLOv5）+ 告警平台服务端，两个组件：
 
 ```
-SmokeFlameDetection/
+FireSmokeDetection/
 ├── client/    监控客户端（原 ObjectDetectionOnnxRT tiny 分支 + 上位机扩展）
 └── server/    告警平台模拟器（Qt 网络服务端，接收客户端告警上报）
 ```

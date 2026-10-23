@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(SmokeFlameDetection)
+project(FireSmokeDetectionClient)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -34,7 +34,7 @@ find_package(Qt6 COMPONENTS
 set(OpenCV_DIR "D:/Libraries/opencv-4.13.0-msvc/opencv/build")
 find_package(OpenCV REQUIRED COMPONENTS core imgproc videoio imgcodecs highgui dnn)
 
-add_executable(SmokeFlameDetection
+add_executable(FireSmokeDetectionClient
         main.cpp
         MainWindow.cpp
         MainWindow.h
@@ -52,7 +52,7 @@ add_executable(SmokeFlameDetection
         qcustomplot.cpp     # 第3期：实时曲线
 )
 
-target_link_libraries(SmokeFlameDetection
+target_link_libraries(FireSmokeDetectionClient
         Qt6::Core
         Qt6::Gui
         Qt6::Widgets
@@ -62,7 +62,7 @@ target_link_libraries(SmokeFlameDetection
         Qt6::PrintSupport
         ${OpenCV_LIBS})
 
-target_include_directories(SmokeFlameDetection PRIVATE
+target_include_directories(FireSmokeDetectionClient PRIVATE
         ${OpenCV_INCLUDE_DIRS})
 
 if (WIN32)
