@@ -1,4 +1,4 @@
-# ObjectDetectionOnnxRT
+# FireSmokeDetection
 
 > **当前分支：tiny** —— 推理引擎为 OpenCV 自带 dnn（无需 onnxruntime）；main 分支使用 onnxruntime。
 

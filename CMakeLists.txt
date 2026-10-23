@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(ObjectDetectionOnnxRT)
+project(FireSmokeDetection)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -31,7 +31,7 @@ find_package(Qt6 COMPONENTS
 set(OpenCV_DIR "D:/Libraries/opencv-4.13.0-msvc/opencv/build")
 find_package(OpenCV REQUIRED COMPONENTS core imgproc videoio imgcodecs highgui dnn)
 
-add_executable(ObjectDetectionOnnxRT
+add_executable(FireSmokeDetection
         main.cpp
         MainWindow.cpp
         MainWindow.h
@@ -43,14 +43,14 @@ add_executable(ObjectDetectionOnnxRT
         YoloDetector.h
 )
 
-target_link_libraries(ObjectDetectionOnnxRT
+target_link_libraries(FireSmokeDetection
         Qt6::Core
         Qt6::Gui
         Qt6::Widgets
         Qt6::Multimedia
         ${OpenCV_LIBS})
 
-target_include_directories(ObjectDetectionOnnxRT PRIVATE
+target_include_directories(FireSmokeDetection PRIVATE
         ${OpenCV_INCLUDE_DIRS})
 
 if (WIN32)
