@@ -9,8 +9,8 @@
 // 本类只通过信号把数据送回主线程（跨线程信号自动排队）。
 //
 
-#ifndef FIRESMOKEDETECTIONTINYCPP_DETECTION_H
-#define FIRESMOKEDETECTIONTINYCPP_DETECTION_H
+#ifndef FIRESMOKEDETECTIONTINY_DETECTION_H
+#define FIRESMOKEDETECTIONTINY_DETECTION_H
 
 #include "YoloDetector.h"         // 带来 DetectionResult 结构
 #include <QThread>
@@ -57,4 +57,4 @@ private:
     std::atomic_bool m_running{false};        // 循环开关
 };
 
-#endif //FIRESMOKEDETECTIONTINYCPP_DETECTION_H
+#endif //FIRESMOKEDETECTIONTINY_DETECTION_H

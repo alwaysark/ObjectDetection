@@ -10,8 +10,8 @@
 //           只有"停止"和截图可点；线程 finished 信号自动恢复界面
 //
 
-#ifndef FIRESMOKEDETECTIONTINYCPP_MAINWINDOW_H
-#define FIRESMOKEDETECTIONTINYCPP_MAINWINDOW_H
+#ifndef FIRESMOKEDETECTIONTINY_MAINWINDOW_H
+#define FIRESMOKEDETECTIONTINY_MAINWINDOW_H
 
 #include <QMainWindow>
 #include <QColor>
@@ -94,4 +94,4 @@ private:
     QColor m_boxColor{255, 0, 0};         //锚框颜色
 };
 
-#endif //FIRESMOKEDETECTIONTINYCPP_MAINWINDOW_H
+#endif //FIRESMOKEDETECTIONTINY_MAINWINDOW_H

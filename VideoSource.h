@@ -14,8 +14,8 @@
 // 翻转/旋转：open() 时一次性传入，运行中不可改（Tiny 版没有热更新）。
 //
 
-#ifndef FIRESMOKEDETECTIONTINYCPP_VIDEOSOURCE_H
-#define FIRESMOKEDETECTIONTINYCPP_VIDEOSOURCE_H
+#ifndef FIRESMOKEDETECTIONTINY_VIDEOSOURCE_H
+#define FIRESMOKEDETECTIONTINY_VIDEOSOURCE_H
 
 #include <string>
 #include <opencv2/core.hpp>
@@ -61,4 +61,4 @@ private:
     double m_fps = 0;
 };
 
-#endif //FIRESMOKEDETECTIONTINYCPP_VIDEOSOURCE_H
+#endif //FIRESMOKEDETECTIONTINY_VIDEOSOURCE_H

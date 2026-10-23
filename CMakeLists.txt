@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(FireSmokeDetectionTinyCPP)
+project(FireSmokeDetectionTiny)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -33,7 +33,7 @@ find_package(OpenCV REQUIRED COMPONENTS core imgproc videoio imgcodecs highgui d
 # onnxruntime（官方 MSVC 预编译包，YoloDetector 运行时动态加载）
 set(ORT_DIR "D:/Libraries/onnxruntime-win-x64-1.20.1")
 
-add_executable(FireSmokeDetectionTinyCPP
+add_executable(FireSmokeDetectionTiny
         main.cpp
         MainWindow.cpp
         MainWindow.h
@@ -45,13 +45,13 @@ add_executable(FireSmokeDetectionTinyCPP
         YoloDetector.h
 )
 
-target_link_libraries(FireSmokeDetectionTinyCPP
+target_link_libraries(FireSmokeDetectionTiny
         Qt6::Core
         Qt6::Gui
         Qt6::Widgets
         ${OpenCV_LIBS})
 
-target_include_directories(FireSmokeDetectionTinyCPP PRIVATE
+target_include_directories(FireSmokeDetectionTiny PRIVATE
         ${OpenCV_INCLUDE_DIRS}
         "${ORT_DIR}/include")
 
