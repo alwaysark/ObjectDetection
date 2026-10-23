@@ -67,8 +67,13 @@
 ```bash
 git clone -b v6.0 --depth 1 https://github.com/ultralytics/yolov5.git
 cd yolov5
-python export.py --weights best.pt --include onnx --imgsz 640 --opset 12
+python export.py --weights best.pt --include onnx --imgsz 640 --simplify --opset 12
 ```
+
+`--simplify` 对本分支非必需——onnxruntime 支持完整 ONNX 算子集，未化简的模型也能加载。
+但建议加上：yolov5 v6.0 导出的 onnx 带有 `Floor`（取整）算子，而 OpenCV 的 dnn 模块
+只实现了 ONNX 算子集的一个子集、**不认识 `Floor`**，未化简的模型在解析阶段就被拒——
+main / tiny 分支用的是 cv::dnn，只有化简过的模型才能在四个分支间通用。
 
 `need/` 下附带一个 YOLOv5 6.0 训练的 fire/smoke 两类模型（m0.9，s 规模），构建时自动同步到 exe 旁边。
 
