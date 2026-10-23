@@ -1,10 +1,6 @@
 # FireSmokeDetection
 
-> **当前分支：tiny** —— 推理引擎为 OpenCV 自带 dnn（无需 onnxruntime）；main 分支使用 onnxruntime。
-
 **实时目标检测桌面应用** —— Qt6 界面 + OpenCV 解码与后处理 + OpenCV dnn 推理，三线程架构。
-
-> 源自个人毕设"烟雾火焰检测"（PyQt5 + onnxruntime）的 C++/Qt6 完整重构版。
 
 ## ⚠ 模型支持范围：仅限 YOLOv5 6.0 导出的 onnx
 
