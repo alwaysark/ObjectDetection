@@ -3,13 +3,14 @@
 **智能监控上位机 + 告警平台服务端**：client 是在 main 分支全部功能之上扩展的上位机
 （Qt6 + OpenCV + `cv::dnn` 推理），server 是与之联调的 Qt TCP 告警平台模拟器。
 
-> 本仓库四个分支共用同一套 YOLOv5 后处理，差别在线程模型与功能范围：
+> 本仓库四个分支中，main / onnx / client-server 共用同一套界面与三线程管线，
+> tiny 是**两线程**教学精简版；差别在推理引擎与功能范围：
 >
 > | 分支 | 推理引擎 | 定位 |
 > |---|---|---|
 > | [main](https://github.com/alwaysark/ObjectDetectionOnnxRT/tree/main) | OpenCV `cv::dnn`（内置） | 单机完整版，依赖最少 |
 > | [onnx](https://github.com/alwaysark/ObjectDetectionOnnxRT/tree/onnx) | onnxruntime C++ API | 单机完整版，推理更快，模型限制更少 |
-> | [tiny](https://github.com/alwaysark/ObjectDetectionOnnxRT/tree/tiny) | onnxruntime C API（动态加载） | 教学精简版，功能最少 |
+> | [tiny](https://github.com/alwaysark/ObjectDetectionOnnxRT/tree/tiny) | OpenCV `cv::dnn`（内置） | 两线程教学精简版，功能最少 |
 > | **client-server**（本分支） | `cv::dnn` | Qt 上位机 + 告警平台服务端 |
 
 ```
@@ -79,10 +80,20 @@ Qt 写的 TCP 服务端（控制台程序，依赖仅 Qt Core/Network/Sql）：
 `server/react/` 保留了一份原 Reactor 模式的 Linux epoll HTTP 服务器源码作为学习参考，
 **不参与编译**（Linux 专用代码，Windows 编不过；与告警协议也无关）。
 
+## 运行环境
+
+- **仅 Windows + MSVC 工具链**：Qt / OpenCV 官方只发布 MSVC 预编译包，MinGW 与 MSVC 的
+  C++ ABI 不兼容、链不上这些库；`CMakeLists.txt` 里 `if (NOT MSVC)` 会直接报错退出
+- 版本组合：Visual Studio 2022 及以上（MSVC 工具集）+ Qt 6.8.3 msvc2022_64 +
+  OpenCV 4.13 MSVC 预编译版。**不需要任何推理库**——client 的推理用 OpenCV 内置 cv::dnn，
+  server 只依赖 Qt（Core / Network / Sql）
+- 运行时零配置：构建时把全部依赖 DLL（Qt / OpenCV / MSVC 运行库，含 Debug 调试版）、
+  Qt 插件（含 SQLite 驱动）、need/ 资源自动拷到各自 exe 旁，两个构建产物目录
+  整体拷到任何 64 位 Windows 双击即跑
+
 ## 构建
 
-环境要求：**Windows + Visual Studio 2022（MSVC）+ Qt 6.8.3 msvc2022_64 + OpenCV 4.13 MSVC 预编译版**（不需要 onnxruntime）。
-先在两个 CMakeLists 中把 `Qt6_DIR`、`OpenCV_DIR` 改成本机路径。
+环境要求见上文"运行环境"。先在两个 CMakeLists 中把 `Qt6_DIR`、`OpenCV_DIR` 改成本机路径。
 
 ```bat
 call "<VS路径>\VC\Auxiliary\Build\vcvars64.bat"

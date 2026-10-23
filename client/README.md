@@ -71,7 +71,7 @@ fire/smoke 模型（n/s/l 规模），构建时自动同步到 exe 旁边。
 
 ## 构建
 
-环境要求：**Windows + Visual Studio 2022（MSVC）+ Qt 6.8.3 msvc2022_64 + OpenCV 4.13 MSVC 预编译版**。
+运行环境（Windows + MSVC 工具链及原因）见仓库根目录 README 的"运行环境"一节。
 Qt 组件比 main 多三个：**Sql**（入库）、**Network**（上报）、**PrintSupport**（QCustomPlot 依赖）。
 
 1. 修改 `client/CMakeLists.txt` 中两处本地路径：`Qt6_DIR`、`OpenCV_DIR`
