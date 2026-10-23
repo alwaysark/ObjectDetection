@@ -593,7 +593,7 @@ void MainWindow::do_frameReady(const QImage &img) {
 void MainWindow::do_resultReady(const std::vector<DetectionResult> &results) {
     // ---- 实时曲线喂点（目标数走左轴，最高置信度走右轴，滚动窗口 60 秒）----
     if (m_Plot) {
-        m_plotSeconds = m_plotClock.elapsed() / 1000.0;
+        m_plotSeconds = m_plotClock.elapsed() / 1000.0;     //获取计时器启动以来经过的毫秒数
         double best = 0;
         for (const auto &r : results) best = std::max(best, double(r.score) * 100.0);
         m_Plot->graph(0)->addData(m_plotSeconds, double(results.size()));

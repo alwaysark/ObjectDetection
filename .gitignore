@@ -2,3 +2,11 @@ build/
 cmake-build-*/
 *.db
 client/out/
+
+# 顶层运行时输出目录（main 分支遗留产物）
+out/
+
+# IDE
+.idea/
+.vs/
+.vscode/
