@@ -1,4 +1,4 @@
-# ObjectDetectionOnnxRT
+# FireSmokeDetection
 
 **实时目标检测桌面应用** —— Qt6 界面 + OpenCV 解码与后处理 + onnxruntime 推理，
 三线程架构，模型与类别文件可随时更换（不限于烟雾火焰，任何 YOLOv5 格式的 onnx 检测模型均可）。
