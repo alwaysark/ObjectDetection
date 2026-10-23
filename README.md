@@ -3,14 +3,24 @@
 **实时烟雾火焰检测桌面应用** —— Qt6 界面 + OpenCV 解码与后处理 + `cv::dnn` 推理，三线程管线。
 推理引擎使用 OpenCV 自带的 dnn 模块，**不依赖 onnxruntime**——只需要 Qt 和 OpenCV 就能编译运行。
 
-> 本仓库四个分支共用同一套界面与三线程管线，差别在推理引擎与功能范围：
+> 本仓库四个分支中，main / onnx / client-server 共用同一套界面与三线程管线，
+> tiny 是**两线程**教学精简版；差别在推理引擎与功能范围：
 >
 > | 分支 | 推理引擎 | 定位 |
 > |---|---|---|
 > | **main**（本分支） | OpenCV `cv::dnn`（内置） | 单机完整版，依赖最少 |
 > | [onnx](https://github.com/alwaysark/ObjectDetectionOnnxRT/tree/onnx) | onnxruntime C++ API | 单机完整版，推理更快，输入尺寸/层名从模型自动读取 |
-> | [tiny](https://github.com/alwaysark/ObjectDetectionOnnxRT/tree/tiny) | onnxruntime C API（动态加载） | 教学精简版，功能最少 |
+> | [tiny](https://github.com/alwaysark/ObjectDetectionOnnxRT/tree/tiny) | OpenCV `cv::dnn`（内置） | 两线程教学精简版，功能最少 |
 > | [client-server](https://github.com/alwaysark/ObjectDetectionOnnxRT/tree/client-server) | `cv::dnn` | Qt 上位机 + 告警平台服务端 |
+
+## 运行环境
+
+- **仅 Windows + MSVC 工具链**：Qt / OpenCV 官方只发布 MSVC 预编译包，MinGW 与 MSVC 的
+  C++ ABI 不兼容、链不上这些库；`CMakeLists.txt` 里 `if (NOT MSVC)` 会直接报错退出
+- 版本组合：Visual Studio 2022 及以上（MSVC 工具集）+ Qt 6.8.3 msvc2022_64 +
+  OpenCV 4.13 MSVC 预编译版。**不需要任何推理库**——cv::dnn 就在 OpenCV 里
+- 运行时零配置：构建时把全部依赖 DLL（Qt / OpenCV / MSVC 运行库，含 Debug 调试版）、
+  Qt 插件、need/ 资源自动拷到 exe 旁，构建产物目录整体拷到任何 64 位 Windows 双击即跑
 
 ## 功能
 
@@ -92,7 +102,7 @@ N0.6 ≈ 48ms/帧（约 20 FPS）；m0.9 ≈ 257ms/帧（约 4 FPS）。
 
 ## 构建
 
-环境要求：**Windows + Visual Studio 2022（MSVC）+ Qt 6.8.3 msvc2022_64 + OpenCV 4.13 MSVC 预编译版**。不需要 onnxruntime。
+环境要求见上文"运行环境"。
 
 1. 修改 `CMakeLists.txt` 中两处本地路径为你的安装位置：
    - `Qt6_DIR`（Qt msvc 版）
