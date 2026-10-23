@@ -57,9 +57,17 @@ cd yolov5
 python export.py --weights best.pt --include onnx --imgsz 640 --simplify --opset 12
 ```
 
-`--simplify`（onnxsim）是关键：它折叠了新版导出中的 `Floor` 算子——**未经化简的模型会被 cv::dnn 拒绝加载**（onnx 分支无此限制）。
+`--simplify`（onnx-simplifier）不是可选项，是**必须**的——卡点在 `Floor` 算子：
 
-`need/` 下附带三个 YOLOv5 6.0 训练的 fire/smoke 两类模型（N0.6 / m0.9 / L0.9，n/s/l 三种规模），
+- yolov5 v6.0 的导出脚本产出的 onnx 带有 `Floor`（取整）算子；
+- OpenCV 的 dnn 模块只实现了 ONNX 算子集的一个子集，**不认识 `Floor`**——未化简的模型
+  在 `readNetFromONNX` 解析阶段就抛 cv::Exception，程序按"模型加载失败"报错拒绝加载；
+- onnxsim 做常量折叠：只依赖常量的子图被预先算成常量，`Floor` 随之被消掉，
+  化简后的模型 cv::dnn 就能正常解析。
+
+onnxruntime 支持完整 ONNX 算子集，没有此限制——onnx 分支加载未化简模型也没问题。
+
+`need/` 下附带三个 YOLOv5 6.0 训练的 fire/smoke 两类模型（N0.6 / m0.9 / L0.9，n/s/l 三种规模，均已化简），
 构建时自动同步到 exe 旁边。
 
 ## 架构：三线程 + 请求信箱
