@@ -1,13 +1,14 @@
 //
 // YoloDetector —— 推理类：加载 onnx 模型 → 前处理 → 推理 → 后处理(NMS) → 画框
 //
-// 对应 Python 版 utils/detect.py 的 YOLOv5 类（t='onnxruntime' 路线）。
+// 推理引擎：OpenCV 自带的 dnn 模块（cv::dnn::readNetFromONNX，CPU 后端）。
+// 好处是零外部依赖：项目里有了 OpenCV 就顺带有了推理能力，不需要再安装、
+// 部署 onnxruntime（与 main 分支同款方案）。
 //
-// 为什么用 onnxruntime 的 **C API** 而不是 C++ API（onnxruntime_cxx_api.h）？
-//   - onnxruntime 官方预编译包是 MSVC 编译的，C++ 类的内存布局和 MinGW 不兼容；
-//   - C API 是纯 C 结构 + 函数指针表，ABI 与编译器无关，MinGW 可以直接用；
-//   - 本实现用 LoadLibrary 动态加载 onnxruntime.dll，连导入库都不需要，
-//     只要 DLL 在 exe 旁边就能跑（CMake 已负责拷贝）。
+// 代价是两个限制（都源于 yolov5-6.0 导出格式的约定）：
+//   - 模型必须经 onnxsim 化简导出（export.py 加 --simplify）：
+//     未化简模型里的 Floor 算子 OpenCV dnn 不认识，readNetFromONNX 直接抛异常；
+//   - 终输出层必须叫 "output"：load 时校验一次，名字不对直接拒绝加载。
 //
 // 推理输出是 YOLOv5 导出的 onnx：[1, 25200, 7]
 //   25200 = 三个尺度特征图的 anchor 格子总数
@@ -20,11 +21,7 @@
 #include <string>
 #include <vector>
 #include <opencv2/core.hpp>
-
-// onnxruntime 的 C 结构体，这里只用指针，前置声明即可（不用包含它的头）
-struct OrtEnv;
-struct OrtSession;
-struct OrtMemoryInfo;
+#include <opencv2/dnn.hpp>     // cv::dnn::Net：推理网络对象（自带 empty 判断）
 
 // 检测结果数据载体：一个被检出的目标
 // （Python 版把结果组织成 dict{label: {num, score[], pos[]}}，C++ 用扁平列表更直接，
@@ -37,12 +34,11 @@ struct DetectionResult {
 
 class YoloDetector {
 public:
-    YoloDetector() = default;
-    ~YoloDetector();      // 释放 session 等资源
+    YoloDetector() = default;    // cv::dnn::Net 自己管理资源，无需手写析构
 
     // 加载 onnx 模型。失败返回 false 并把原因写入 *err（不用异常，调用方好处理）
     bool load(const std::string& onnxPath, std::string* err = nullptr);
-    bool isLoaded() const { return m_loaded; }
+    bool isLoaded() const { return !m_net.empty(); }
 
     // 检测参数。conf/iou 会在检测线程里被频繁热更新，
     // setter 都做成一行内联——真正的跨线程保护由 Detection 层负责
@@ -56,17 +52,9 @@ public:
     std::vector<DetectionResult> detect(cv::Mat& frame);
 
 private:
-    void unload();        // 释放 session（load 新模型前 / 析构时调用）
     void drawDetections(cv::Mat& frame, const std::vector<DetectionResult>& dets) const;
 
-    // onnxruntime 会话（仅推理线程使用；指针用完必须调对应的 Release）
-    OrtSession*     m_session  = nullptr;
-    OrtMemoryInfo*  m_memInfo  = nullptr;
-    std::string     m_inputName = "images";    // 从模型里读出来的输入/输出名
-    std::string     m_outputName = "output0";
-    bool m_loaded = false;
-
-    int    m_inputW = 640, m_inputH = 640;     // 模型输入尺寸（和导出 onnx 时一致）
+    cv::dnn::Net m_net;                        // 推理网络（空 Net = 未加载）
     float  m_conf = 0.35f;                     // 置信度阈值
     float  m_iou = 0.35f;                      // NMS 的 IoU 阈值
     bool   m_drawBox = true;                   // 是否把框画到帧上

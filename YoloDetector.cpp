@@ -1,7 +1,6 @@
 //
-// YoloDetector 实现。
-// 推理部分：onnxruntime C API（动态加载）；
-// 前处理/后处理/NMS/画框：OpenCV（与 Python YOLOv5 类逐步对应）。
+// YoloDetector 实现（cv::dnn 版）。
+// 推理：readNetFromONNX + setInput/forward；前处理/后处理/NMS/画框：OpenCV。
 //
 // 顺手修了 Python 版的一个 bug：NMSBoxes 要求传 xywh（左上角+宽高），
 // Python 版传的是 xyxy，导致框越叠越大；C++ 版从源头就按 xywh 存。
@@ -11,190 +10,94 @@
 #include <opencv2/dnn.hpp>        // cv::dnn::blobFromImage 造输入张量 + NMSBoxes
 #include <algorithm>
 #include <cmath>
-#include <fstream>
-#include <windows.h>
-#include "onnxruntime_c_api.h"    // D:/Libraries/onnxruntime-win-x64-1.20.1/include
-
-// ---------------------------------------------------------------------------
-// onnxruntime 动态加载：拿到 C API 函数指针表（进程内只做一次）
-// ---------------------------------------------------------------------------
-static const OrtApi* ortApi() {
-    static const OrtApi* api = nullptr;
-    if (api) return api;
-
-    // ① 从 exe 目录/PATH 找到 DLL
-    HMODULE lib = LoadLibraryA("onnxruntime.dll");
-    if (!lib) return nullptr;
-    // ② 拿到 OrtGetApiBase 函数（这是 DLL 导出的唯一入口之一）
-    using GetApiBaseFn = const OrtApiBase* (*)();
-    auto getBase = reinterpret_cast<GetApiBaseFn>(GetProcAddress(lib, "OrtGetApiBase"));
-    if (!getBase) return nullptr;
-    // ③ 用编译时头文件的版本号换取对应版本的函数表（版本必须和 DLL 匹配）
-    api = getBase()->GetApi(ORT_API_VERSION);
-    return api;
-}
-
-// 每次调 onnxruntime 都返回 OrtStatus*，统一检查（非空 = 出错）
-static bool ortOk(const OrtApi* api, OrtStatus* st, const char* what, std::string* err) {
-    if (!st) return true;
-    if (err) *err = std::string(what) + ": " + api->GetErrorMessage(st);
-    api->ReleaseStatus(st);
-    return false;
-}
-
-// 环境对象进程级共享（创建一次，随进程销毁，属于可接受的"懒单例"）
-static OrtEnv* ortEnv(const OrtApi* api, std::string* err) {
-    static OrtEnv* env = nullptr;
-    if (!env) {
-        if (!ortOk(api, api->CreateEnv(ORT_LOGGING_LEVEL_WARNING, "FireSmokeDetection", &env),
-                   "CreateEnv", err))
-            return nullptr;
-    }
-    return env;
-}
 
 // ---------- 加载模型 ----------
 bool YoloDetector::load(const std::string& onnxPath, std::string* err) {
-    unload();
-    const OrtApi* api = ortApi();
-    if (!api) { if (err) *err = "找不到 onnxruntime.dll（检查 exe 旁是否有该 DLL）"; return false; }
-
-    // 把模型文件整个读进内存：CreateSessionFromArray 按"字节"建会话，
-    // 避开 Windows 宽字符路径的坑（CreateSession 的路径参数是 wchar_t*）
-    std::ifstream f(onnxPath, std::ios::binary);
-    if (!f) { if (err) *err = "打不开模型文件: " + onnxPath; return false; }
-    std::vector<char> modelData((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-
-    OrtSessionOptions* opts = nullptr;
-    if (!ortOk(api, api->CreateSessionOptions(&opts), "CreateSessionOptions", err)) return false;
-    api->SetIntraOpNumThreads(opts, 0);                                  // 0 = 用默认线程数（≈物理核心数），和 Python 版默认行为一致
-    api->SetSessionGraphOptimizationLevel(opts, ORT_ENABLE_ALL);                // 打开图优化
-
-    if (!ortOk(api, api->CreateSessionFromArray(ortEnv(api, err), modelData.data(),
-                 modelData.size(), opts, &m_session), "CreateSession", err)) {
-        api->ReleaseSessionOptions(opts);
+    try {
+        // 解析模型结构。文件不存在 / 含 OpenCV 不支持的算子
+        // （如未化简导出里的 Floor）会抛 cv::Exception
+        m_net = cv::dnn::readNetFromONNX(onnxPath);
+    } catch (const cv::Exception& e) {
+        if (err) *err = e.what();
+        m_net = cv::dnn::Net();    // Net 没有 release()，赋默认空对象即"清空"
         return false;
     }
-    api->ReleaseSessionOptions(opts);
+    // CPU 推理后端（OpenCV 自带，无额外依赖）
+    m_net.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
+    m_net.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
 
-    // 内存描述符：告诉 onnxruntime 我们的输入张量在 CPU 内存里（detect 时要用）
-    if (!ortOk(api, api->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &m_memInfo),
-               "CreateCpuMemoryInfo", err)) { unload(); return false; }
-
-    // 从模型里读输入/输出层的名字（YOLOv5 通常是 "images" / "output0"，但不写死）
-    OrtAllocator* alloc = nullptr;
-    api->GetAllocatorWithDefaultOptions(&alloc);
-    char* name = nullptr;
-    if (ortOk(api, api->SessionGetInputName(m_session, 0, alloc, &name), "GetInputName", err)) {
-        m_inputName = name; api->AllocatorFree(alloc, name);
-    }
-    if (ortOk(api, api->SessionGetOutputName(m_session, 0, alloc, &name), "GetOutputName", err)) {
-        m_outputName = name; api->AllocatorFree(alloc, name);
-    }
-
-    m_loaded = true;
-    return true;
-}
-
-// ---------- 释放会话 ----------
-void YoloDetector::unload() {
-    const OrtApi* api = ortApi();
-    if (!api) { m_loaded = false; return; }
-    if (m_session)  { api->ReleaseSession(m_session);  m_session = nullptr; }
-    if (m_memInfo)  { api->ReleaseMemoryInfo(m_memInfo); m_memInfo = nullptr; }
-    m_loaded = false;
-}
-
-YoloDetector::~YoloDetector() {
-    unload();
+    // yolov5-6.0 的终输出层固定叫 "output"。load 时校验一次存在性：
+    // 名字对不上，forward("output") 就每帧抛异常，detect() 只能每帧静默空结果
+    const std::vector<cv::String> outs = m_net.getUnconnectedOutLayersNames();
+    for (const cv::String& n : outs)
+        if (n == "output") return true;
+    if (err) *err = "模型不是 yolov5-6.0 导出格式：找不到终输出层 \"output\"";
+    m_net = cv::dnn::Net();
+    return false;
 }
 
 // ---------- 检测一帧 ----------
 std::vector<DetectionResult> YoloDetector::detect(cv::Mat& frame) {
     std::vector<DetectionResult> results;
-    std::string errLocal;             // onnxruntime 调用的错误暂存（本函数不对外报告，失败就放弃本帧）
-    if (!m_loaded || frame.empty()) return results;
-    const OrtApi* api = ortApi();
+    if (m_net.empty() || frame.empty()) return results;
 
-    // ===== 前处理（OpenCV 代劳）=====
-    // blobFromImage 一次做完四件事：缩放到 640x640、乘 1/255 归一化、HWC→NCHW、加 batch 维
-    // swapRB 传 false：因为 frame 已经是 RGB（VideoSource::read 保证），模型要的就是 RGB。
-    // 如果哪天直接传 BGR 原始帧，这里要改成 true —— 通道顺序错了检测结果会莫名变差
-    cv::Mat blob = cv::dnn::blobFromImage(frame, 1.0 / 255.0,
-                                          cv::Size(m_inputW, m_inputH),
-                                          cv::Scalar(), false, false, CV_32F);
+    cv::Mat output;
+    try {
+        // ===== 前处理（OpenCV 代劳）=====
+        // blobFromImage 一次做完四件事：缩放到 640×640、乘 1/255 归一化、HWC→NCHW、加 batch 维
+        // swapRB 传 false：VideoSource::read 已经把 frame 转为 RGB，模型要的就是 RGB。
+        // 注意这里是拉伸缩放不是 letterbox：和下面 sx/sy 分轴缩放自洽。
+        cv::Mat blob = cv::dnn::blobFromImage(frame, 1.0 / 255.0,
+                cv::Size(640, 640), cv::Scalar(), false, false, CV_32F);
 
-    // 输入张量：把 blob 的内存包装成 onnxruntime 的 OrtValue（零拷贝，不复制数据）
-    const int64_t inShape[4] = {1, 3, m_inputH, m_inputW};
-    OrtValue* inTensor = nullptr;
-    if (!ortOk(api, api->CreateTensorWithDataAsOrtValue(m_memInfo, blob.ptr<float>(),
-                 blob.total() * sizeof(float), inShape, 4,
-                 ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &inTensor),
-                 "CreateTensor", &errLocal)) {
+        // ===== 推理 =====
+        // 按名取终输出层 "output"。OpenCV 会裁掉该层不依赖的分支，
+        // 所以三个检测头各自的输出根本不用算。
+        m_net.setInput(blob);
+        output = m_net.forward("output");
+    } catch (const cv::Exception&) {
+        return results;                    // 推理出错：放弃本帧，不逃逸到调用方
+    }
+
+    // yolov5-6.0 的输出固定是 [1, 25200, 5+类别数]。类别数因训练数据而异，
+    // 只要求 attrs ≥ 6（至少 1 类），rows/attrs 都从输出里读，不写死
+    if (output.dims != 3 || output.size[0] != 1 || output.size[2] < 6)
         return results;
-    }
 
-    // ===== 推理 =====
-    const char* inNames[]  = { m_inputName.c_str() };
-    const char* outNames[] = { m_outputName.c_str() };
-    OrtValue* outTensor = nullptr;
-    bool ok = ortOk(api, api->Run(m_session, nullptr, inNames, &inTensor, 1, outNames, 1, &outTensor),
-                    "Run", &errLocal);
-    api->ReleaseValue(inTensor);
-    if (!ok) return results;
+    // batch 恒为 1，重排成 [25200, attrs] 的 2D 视图便于按行取（共享内存，无拷贝）
+    const int rows  = output.size[1];
+    const int attrs = output.size[2];
+    const int classCount = attrs - 5;
+    cv::Mat out2d = output.reshape(1, rows);
 
-    // ===== 把输出拷出来：[1, 25200, 7] 的 float 数组 =====
-    OrtTensorTypeAndShapeInfo* info = nullptr;
-    float* outData = nullptr;
-    size_t count = 0;
-    int64_t dims[3] = {1, 0, 0};
-    if (ortOk(api, api->GetTensorTypeAndShape(outTensor, &info), "GetShape", &errLocal)) {
-        size_t dimCount = 0;
-        api->GetDimensionsCount(info, &dimCount);
-        std::vector<int64_t> dimsV(dimCount);
-        api->GetDimensions(info, dimsV.data(), dimCount);
-        api->GetTensorShapeElementCount(info, &count);
-        api->ReleaseTensorTypeAndShapeInfo(info);
-        api->GetTensorMutableData(outTensor, reinterpret_cast<void**>(&outData));
-        if (dimCount == 3) {
-            dims[1] = dimsV[1];     // 25200 个候选
-            dims[2] = dimsV[2];     // 每候选 7 个数
-        }
-    }
-    api->ReleaseValue(outTensor);
-    if (!outData || dims[2] < 6) return results;      // 形状不对就直接放弃本帧
+    // 框坐标是相对 640 输入的，按原图/输入的比例缩放回原图
+    // （blobFromImage 是拉伸缩放，所以 x/y 要分轴各乘各的）
+    const float sx = static_cast<float>(frame.cols) / 640;
+    const float sy = static_cast<float>(frame.rows) / 640;
 
-    const int rows  = static_cast<int>(dims[1]);
-    const int attrs = static_cast<int>(dims[2]);
-    const int classCount = attrs - 5;                 // 7-5 = 2 类（fire/smoke）
-
-    // 框坐标是相对 640 输入的，要按原图/输入的比例缩放回原图
-    const float sx = static_cast<float>(frame.cols) / m_inputW;
-    const float sy = static_cast<float>(frame.rows) / m_inputH;
-
-    std::vector<cv::Rect> boxes;                      // xywh（NMSBoxes 要求的格式）
+    std::vector<cv::Rect> boxes;           // xywh（NMSBoxes 要求的格式）
     std::vector<float>    scores;
     std::vector<int>      classIds;
 
     for (int i = 0; i < rows; ++i) {
-        const float* p = outData + static_cast<size_t>(i) * attrs;
+        const float* p = out2d.ptr<float>(i);
 
-        const float obj = p[4];                       // 这格里"有没有东西"的置信度
-        if (obj <= m_conf) continue;                  // 第一道门槛：先筛掉大半候选
+        const float obj = p[4];            // 这格里"有没有东西"的置信度
+        if (obj <= m_conf) continue;       // 第一道门槛：先筛掉大半候选
 
-        // 在两个类别分里挑最高的
+        // 在各类别分里挑最高的
         int bestClass = 0;
         float bestClassScore = p[5];
         for (int c = 1; c < classCount; ++c) {
             if (p[5 + c] > bestClassScore) { bestClassScore = p[5 + c]; bestClass = c; }
         }
 
-        const float score = obj * bestClassScore;     // 最终得分 = obj × 类别分（YOLOv5 惯例）
-        if (score <= m_conf) continue;                // 第二道门槛
+        const float score = obj * bestClassScore;   // 最终得分 = obj × 类别分（YOLOv5 惯例）
+        if (score <= m_conf) continue;              // 第二道门槛
 
-        // 中心坐标 + 宽高，按比例缩放回原图，再换算成左上角 xywh
+        // 中心坐标 + 宽高，缩放回原图，再换算成左上角 xywh
         const float cx = p[0] * sx, cy = p[1] * sy;
-        const float w  = p[2] * sx, h  = p[3] * sy;
+        const float w  = p[2] * sx, h = p[3] * sy;
         cv::Rect box(static_cast<int>(cx - w / 2), static_cast<int>(cy - h / 2),
                      static_cast<int>(w), static_cast<int>(h));
 
@@ -203,7 +106,9 @@ std::vector<DetectionResult> YoloDetector::detect(cv::Mat& frame) {
         classIds.push_back(bestClass);
     }
 
-    // ===== 非极大值抑制（NMS）：同一目标被相邻格子重复检出，只留最好的 =====
+    // ===== 非极大值抑制（NMS）：同一目标被相邻格子重复检出，只留分最高的 =====
+    // 注意 NMSBoxes 是类无关的：所有类别的框放在一起抑制，
+    // fire/smoke 重叠时分数低的会被高的压掉（完整版同样存在，留作已知问题）
     std::vector<int> keep;
     if (!boxes.empty())
         cv::dnn::NMSBoxes(boxes, scores, m_conf, m_iou, keep);
@@ -218,21 +123,21 @@ std::vector<DetectionResult> YoloDetector::detect(cv::Mat& frame) {
         results.push_back(r);
     }
 
-    // 按置信度从高到低排，界面显示和画框都更直观
+    // 按置信度从高到低排，界面显示更直观
     std::sort(results.begin(), results.end(),
               [](const DetectionResult& a, const DetectionResult& b) { return a.score > b.score; });
 
-    if (m_drawBox) drawDetections(frame, results);    // 直接把框画在帧上（Python 同款做法）
+    if (m_drawBox) drawDetections(frame, results);   // 框直接画在帧上
     return results;
 }
 
-// ---------- 画框 + 标签（公式与 Python __formatResult 一致） ----------
+// ---------- 画框 + 标签 ----------
 void YoloDetector::drawDetections(cv::Mat& frame, const std::vector<DetectionResult>& dets) const {
-    // 线宽随图像尺寸自适应：小图细线、大图粗线，但不小于设定的 thickness
+    // 线宽随图像尺寸自适应：小图细线、大图粗线，但不低于设定的 thickness
     const int lw = std::max(static_cast<int>(std::lround((frame.rows + frame.cols) / 2.0 * 0.003)),
                             m_thickness);
-    const int tf = std::max(lw - 1, 1);                       // 字体笔画粗细
-    // 文字颜色取框颜色的反色（255-x），保证在色块上看得清（Python 同款）
+    const int tf = std::max(lw - 1, 1);                       // 文字笔画粗细
+    // 文字颜色取框颜色的反色（255-x），保证在色块上看得清
     const cv::Scalar txtColor(255 - m_boxColor[0], 255 - m_boxColor[1], 255 - m_boxColor[2]);
 
     for (const auto& r : dets) {

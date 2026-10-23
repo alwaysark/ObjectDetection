@@ -15,7 +15,6 @@ endif ()
 set(Qt6_DIR "D:/ProgramFiles/Qt/6.8.3/msvc2022_64/lib/cmake/Qt6" CACHE PATH "" FORCE)
 list(APPEND CMAKE_PREFIX_PATH "D:/ProgramFiles/Qt/6.8.3/msvc2022_64")
 set(OpenCV_DIR "D:/Libraries/opencv-4.13.0-msvc/opencv/build")
-set(ORT_DIR "D:/Libraries/onnxruntime-win-x64-1.20.1")
 set(VS_REDIST "D:/ProgramFiles/VisualStudio/MicrosoftVisualStudio18/Community/VC/Redist/MSVC")
 set(UCRTBASED_DLL "D:/Windows Kits/10/bin/10.0.28000.0/x64/ucrt/ucrtbased.dll")
 
@@ -26,8 +25,8 @@ add_compile_definitions(NOMINMAX)
 # Qt：界面 / 信号槽 / QThread（教学版无警报音，不需要 Multimedia）
 find_package(Qt6 COMPONENTS Core Gui Widgets REQUIRED)
 
-# OpenCV（官方 MSVC 预编译版，opencv_world 单库）：解码、前处理 blob、NMS、画框
-# （dnn 模块只用于 blobFromImage / NMSBoxes；推理引擎是下面的 onnxruntime）
+# OpenCV（官方 MSVC 预编译版，opencv_world 单库）：解码、前处理 blob、
+# cv::dnn 推理（readNetFromONNX）、NMS、画框
 find_package(OpenCV REQUIRED COMPONENTS core imgproc videoio imgcodecs dnn)
 
 add_executable(FireSmokeDetectionTiny
@@ -37,11 +36,13 @@ add_executable(FireSmokeDetectionTiny
         VideoSource.cpp  VideoSource.h
         YoloDetector.cpp YoloDetector.h)
 
-# onnxruntime：只用头文件；YoloDetector 运行时 LoadLibraryA("onnxruntime.dll") 动态加载，
-# 不链接 onnxruntime.lib
+target_link_libraries(FireSmokeDetectionTiny
+        Qt6::Core Qt6::Gui Qt6::Widgets
+        ${OpenCV_LIBS})
+
+# 推理用 OpenCV 内置的 cv::dnn，无需 onnxruntime
 target_include_directories(FireSmokeDetectionTiny PRIVATE
-        ${OpenCV_INCLUDE_DIRS}
-        "${ORT_DIR}/include")
+        ${OpenCV_INCLUDE_DIRS})
 
 # ---- 部署辅助：把存在的文件拷到 exe 旁的 subdir 子目录（"" = exe 根）----
 function(deploy_to target subdir)
@@ -67,11 +68,6 @@ if (WIN32)
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "$<TARGET_FILE:${LIB}>" "$<TARGET_FILE_DIR:${PROJECT_NAME}>")
     endforeach ()
-
-    # onnxruntime DLL（运行时 LoadLibraryA 按名字找，必须在 exe 旁边）
-    deploy_to(${PROJECT_NAME} ""
-            "${ORT_DIR}/lib/onnxruntime.dll"
-            "${ORT_DIR}/lib/onnxruntime_providers_shared.dll")
 
     # MSVC 运行库（Release + Debug 都拷，调试版 exe 起得来）与 ucrtbased.dll
     file(GLOB CRT_DLLS
