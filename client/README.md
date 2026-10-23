@@ -15,9 +15,20 @@
 - 关窗确认 + 线程安全退出
 
 模型要求（与 main 相同）：输入尺寸写死 640×640，终输出层名校验为 `output`，
-输出按 `[1, 25200, 5+类别数]` 解析；**模型必须经 onnxsim 化简**（`--simplify`），
-否则 `Floor` 算子会被 cv::dnn 拒绝加载。`need/` 下附带 N0.6 / m0.9 / L0.9 三个
-fire/smoke 模型（n/s/l 规模），构建时自动同步到 exe 旁边。
+输出按 `[1, 25200, 5+类别数]` 解析。
+
+**模型必须经 onnxsim 化简导出**（`--simplify`），卡点在 `Floor` 算子：yolov5 v6.0
+导出的 onnx 带有 `Floor`（取整）算子，而 OpenCV 的 dnn 模块只实现了 ONNX 算子集的
+一个子集、不认识它——未化简的模型在 `readNetFromONNX` 解析阶段就抛异常；
+onnxsim 的常量折叠会把这个只依赖常量的算子消掉：
+
+```bash
+git clone -b v6.0 --depth 1 https://github.com/ultralytics/yolov5.git
+cd yolov5 && python export.py --weights best.pt --include onnx --imgsz 640 --simplify --opset 12
+```
+
+`need/` 下附带 N0.6 / m0.9 / L0.9 三个 fire/smoke 模型（n/s/l 规模，均已化简），
+构建时自动同步到 exe 旁边。
 
 ## 上位机扩展（相对 main 新增的三块）
 

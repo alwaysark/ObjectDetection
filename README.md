@@ -121,6 +121,7 @@ cmake -S server -B build/server -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --b
 
 - **类无关 NMS**：`cv::dnn::NMSBoxes` 把所有类别的候选框放同一个池子里互相抑制，
   不同类别目标重叠时（烟与火常重叠）低分框会被高分框压掉（与 main 相同）
-- 输入尺寸固定 640×640 拉伸缩放；仅支持 YOLOv5 6.0 导出、经 onnxsim 化简的 onnx（与 main 相同）
+- 输入尺寸固定 640×640 拉伸缩放；仅支持 YOLOv5 6.0 导出、经 onnxsim 化简的 onnx
+  ——cv::dnn 不认识未化简模型里的 `Floor` 算子，解析阶段就拒载（详见 client/README.md）
 - 平台离线时告警上报静默丢弃，不补发（本地入库不受影响）
 - 屏幕捕获未实现（接口已预留）；视频源为实时丢帧模式（与 main 相同）
