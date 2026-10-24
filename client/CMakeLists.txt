@@ -92,5 +92,5 @@ if (WIN32)
     # 资源目录 need/（模型、类别文件、警报音），程序按相对路径取用
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${CMAKE_SOURCE_DIR}/need" "$<TARGET_FILE_DIR:${PROJECT_NAME}>/need")
+            "${CMAKE_CURRENT_SOURCE_DIR}/need" "$<TARGET_FILE_DIR:${PROJECT_NAME}>/need")
 endif ()
