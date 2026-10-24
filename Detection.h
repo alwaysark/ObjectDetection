@@ -83,6 +83,7 @@ signals:
     void frameReady(const QImage& img);                       // → 界面显示
     void resultReady(const std::vector<DetectionResult>& r);  // → 界面日志
     void targetDetected();                                    // → 警报（连续 10 帧检出任意目标）
+    void alarmTriggered(const std::vector<DetectionResult>& r); // → 告警入库（随警报附带检出明细）
     void errorOccurred(const QString& msg);                   // → 红字日志 + 按钮复位
     void sourceFinished();                                    // → 日志 + 按钮复位
     void sourceOpened(const QString& desc);                   // → 日志

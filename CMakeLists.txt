@@ -23,8 +23,8 @@ set(UCRTBASED_DLL "D:/Windows Kits/10/bin/10.0.28000.0/x64/ucrt/ucrtbased.dll")
 add_compile_options(/utf-8 /Zc:__cplusplus)
 add_compile_definitions(NOMINMAX)
 
-# Qt：界面 / 信号槽 / QThread / QSoundEffect 警报音
-find_package(Qt6 COMPONENTS Core Gui Widgets Multimedia REQUIRED)
+# Qt：界面 / 信号槽 / QThread / QSoundEffect 警报音 / Sql 告警入库
+find_package(Qt6 COMPONENTS Core Gui Widgets Multimedia Sql REQUIRED)
 
 # OpenCV（官方 MSVC 预编译版，opencv_world 单库）：解码、前处理 blob、NMS、画框
 # （dnn 模块只用于 blobFromImage / NMSBoxes；推理引擎是下面的 onnxruntime）
@@ -35,11 +35,12 @@ add_executable(FireSmokeDetection
         MainWindow.cpp MainWindow.h
         Detection.cpp    Detection.h
         VideoSource.cpp  VideoSource.h
-        YoloDetector.cpp YoloDetector.h)
+        YoloDetector.cpp YoloDetector.h
+        AlarmStore.cpp    AlarmStore.h)     # 告警记录 SQLite 入库/查询
 
 # onnxruntime：官方 MSVC 预编译包，C++ API 隐式链接（头文件 + onnxruntime.lib）
 target_link_libraries(FireSmokeDetection
-        Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Multimedia
+        Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Multimedia Qt6::Sql
         ${OpenCV_LIBS}
         "${ORT_DIR}/lib/onnxruntime.lib")
 
@@ -66,7 +67,7 @@ if (WIN32)
     # ==== 运行时部署：依赖全部拷到 exe 旁边，脱离开发环境双击即可运行 ====
 
     # Qt / OpenCV 运行库（Network 是 Multimedia 的依赖，缺了加载期起不来）
-    foreach (LIB Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Multimedia Qt6::Network opencv_world)
+    foreach (LIB Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Multimedia Qt6::Sql Qt6::Network opencv_world)
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "$<TARGET_FILE:${LIB}>" "$<TARGET_FILE_DIR:${PROJECT_NAME}>")
@@ -91,6 +92,10 @@ if (WIN32)
     deploy_to(${PROJECT_NAME} plugins/multimedia
             "${QT_PLUGINS}/multimedia/windowsmediaplugin.dll"
             "${QT_PLUGINS}/multimedia/windowsmediaplugind.dll")
+    # QSQLITE 驱动插件（QSqlDatabase 运行时按需加载；Debug 构建加载带 d 后缀的调试版）
+    deploy_to(${PROJECT_NAME} plugins/sqldrivers
+            "${QT_PLUGINS}/sqldrivers/qsqlite.dll"
+            "${QT_PLUGINS}/sqldrivers/qsqlited.dll")
 
     # 资源目录 need/（模型、类别文件、警报音），程序按相对路径取用
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD

@@ -180,7 +180,11 @@ void Detection::run() {
             // （换模型/换类别后语义不变：只要 results 非空就算"有目标"，
             //   不写死任何类别名——哪类算危险是类别文件决定的，不是代码决定的）
             if (!results.empty()) {
-                if (++m_alarmStreak >= 10) { emit targetDetected(); m_alarmStreak = 0; }
+                if (++m_alarmStreak >= 10) {
+                    emit targetDetected();
+                    emit alarmTriggered(results);   // 带上检出明细：入库用
+                    m_alarmStreak = 0;
+                }
             } else {
                 m_alarmStreak = 0;
             }

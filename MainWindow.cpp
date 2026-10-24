@@ -33,7 +33,17 @@
 #include <QCoreApplication>
 #include <QRegularExpression>
 
+#include <QDialog>
+#include <QTableView>
+#include <QHeaderView>
+#include <QDesktopServices>
+#include <QSqlQueryModel>
+#include <QPixmap>
+#include <QFileInfo>
+#include <algorithm>
+
 #include "Detection.h"
+#include "AlarmStore.h"
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_Detection = new Detection(this);      //父对象机制：主窗口销毁时自动 delete
@@ -46,6 +56,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
             QCoreApplication::applicationDirPath() + "/need/JingBao/alarm.wav"));
     m_JingBao->setVolume(0.9f);
     m_JingBaoLengQue.invalidate();          //计时器先置为"无效"，第一次警报立刻可响
+
+    // 告警库：exe 旁的 alarms.db，建表失败只提示不拦截（记录功能不影响检测主流程）
+    m_AlarmStore = new AlarmStore(this);
+    QString dbErr;
+    const QString dbPath = QCoreApplication::applicationDirPath() + "/alarms.db";
+    if (!m_AlarmStore->open(dbPath, &dbErr))
+        displayLog("告警数据库打开失败：" + dbErr, "red");
+    else
+        displayLog(QString("告警数据库就绪：%1（累计 %2 条）").arg(dbPath).arg(m_AlarmStore->totalCount()));
 
     loadConfig();                           //恢复上次的界面设置
 
@@ -221,6 +240,8 @@ void MainWindow::buildUi() {
 
     m_JieTu = new QPushButton("截图");
     ShuChuYelayout -> addRow(m_JieTu);
+    m_AlarmHistory = new QPushButton("告警记录");
+    ShuChuYelayout -> addRow(m_AlarmHistory);
 
     setCentralWidget(central);
 }
@@ -253,12 +274,14 @@ void MainWindow::bindSignal() {
     connect(m_IOU,&QDoubleSpinBox::valueChanged,this,&MainWindow::do_IOU_valueChanged);
     connect(m_XuanZeLuJiing,&QToolButton::clicked,this,&MainWindow::do_XuanZeLuJiing_clicked);
     connect(m_JieTu,&QPushButton::clicked,this,&MainWindow::do_JieTu_clicked);
+    connect(m_AlarmHistory,&QPushButton::clicked,this,&MainWindow::do_openAlarmHistory);
 
     // ---- 检测线程信号 → 界面槽 ----
     // 发射方在检测线程、接收方在主线程，Qt 自动用排队连接（参数被拷贝进事件队列）
     connect(m_Detection, &Detection::frameReady,     this, &MainWindow::do_frameReady);
     connect(m_Detection, &Detection::resultReady,    this, &MainWindow::do_resultReady);
     connect(m_Detection, &Detection::targetDetected, this, &MainWindow::do_targetDetected);
+    connect(m_Detection, &Detection::alarmTriggered, this, &MainWindow::do_alarmTriggered);
     connect(m_Detection, &Detection::errorOccurred,  this, &MainWindow::do_errorOccurred);
     connect(m_Detection, &Detection::sourceFinished, this, &MainWindow::do_sourceFinished);
     connect(m_Detection, &Detection::sourceOpened,   this, &MainWindow::do_sourceOpened);
@@ -552,6 +575,72 @@ void MainWindow::do_targetDetected() {
     m_JingBao->play();
     m_JingBaoLengQue.restart();
     displayLog("警告：检测到目标！", "red");
+}
+
+// 告警落地：检测线程连续 10 帧检出后发来（带检出明细）。两件事：截图 → 存 SQLite
+// （失败都不影响检测主流程；跨线程排队连接保证本槽在 UI 线程执行，SQLite 连接只在 UI 线程用）
+void MainWindow::do_alarmTriggered(const std::vector<DetectionResult> &results) {
+    AlarmRecord rec;
+    rec.time  = QDateTime::currentDateTime();
+    rec.count = int(results.size());
+
+    QStringList labels;
+    for (const auto &r : results) {
+        labels << QString::fromStdString(r.label);
+        rec.score = std::max(rec.score, r.score);
+    }
+    rec.label = labels.join(", ");
+
+    // 快照：把当前显示画面存到保存目录（失败留空路径）
+    const QPixmap pm = m_TuXiangShuChu->pixmap();   // Qt 6.8 起 pixmap() 按值返回
+    if (!pm.isNull()) {
+        QDir().mkpath(m_BaoCun->text());
+        const QString shot = m_BaoCun->text() + "/alarm_" +
+                             rec.time.toString("MM-dd HH-mm-ss") + ".png";
+        if (pm.save(shot)) rec.snapshot = shot;
+    }
+
+    if (m_AlarmStore && m_AlarmStore->append(rec))
+        displayLog(QString("告警已记录（累计 %1 条）").arg(m_AlarmStore->totalCount()));
+    else
+        displayLog("告警记录写入失败", "red");
+}
+
+// 告警记录对话框：QTableView 展示最近 500 条，双击快照列用系统看图程序打开
+void MainWindow::do_openAlarmHistory() {
+    QDialog dlg(this);
+    dlg.setWindowTitle("告警记录");
+    dlg.resize(760, 420);
+    auto *lay = new QVBoxLayout(&dlg);
+    auto *view = new QTableView(&dlg);
+
+    auto *model = m_AlarmStore->queryByDay(QDate());      // 空 = 最近 500 条
+    view->setModel(model);
+    // 列宽：时间/类别/置信度/目标数自适应内容，快照列吃掉剩余宽度
+    view->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    view->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    view->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    view->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
+    view->horizontalHeader()->setSectionResizeMode(5, QHeaderView::Stretch);
+    // 快照列只显示文件名（完整路径放 tooltip，悬停可看）
+    const int snapCol = 5;
+    for (int row = 0; row < model->rowCount(); ++row) {
+        const QString path = model->data(model->index(row, snapCol)).toString();
+        if (path.isEmpty()) continue;
+        const QFileInfo fi(path);
+        model->setData(model->index(row, snapCol), fi.fileName(), Qt::DisplayRole);
+        model->setData(model->index(row, snapCol), path, Qt::ToolTipRole);
+    }
+    // 双击快照列 → 用系统默认看图程序打开那张 png
+    connect(view, &QTableView::doubleClicked, this, [this](const QModelIndex &idx) {
+        if (idx.column() != 5) return;
+        const QString path = idx.data(Qt::ToolTipRole).toString();
+        if (!path.isEmpty() && QFile::exists(path))
+            QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+    });
+    view->setEditTriggers(QAbstractItemView::NoEditTriggers);   // 只读
+    lay->addWidget(view);
+    dlg.exec();
 }
 
 void MainWindow::do_errorOccurred(const QString &msg) {

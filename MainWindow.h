@@ -26,6 +26,7 @@ class QCheckBox;        //复选框
 class QTabWidget;       //选项卡部件
 class QCloseEvent;      //关闭事件
 class QSoundEffect;     //警报音播放（Qt Multimedia）
+class AlarmStore;       //告警记录库（SQLite）
 
 #include "YoloDetector.h"   // do_resultReady 的参数里用到 DetectionResult
 
@@ -54,6 +55,7 @@ private:
 
 private:
     Detection *m_Detection = nullptr;               //检测线程
+    AlarmStore *m_AlarmStore = nullptr;             //告警记录库（SQLite，UI 线程专用）
 
 private slots:
     void do_QingChu_clicked();      //清除：清空日志
@@ -85,6 +87,8 @@ private slots:
     void do_frameReady(const QImage &img);                        //显示检测画面
     void do_resultReady(const std::vector<DetectionResult> &r);   //结果写日志
     void do_targetDetected();                                    //警报（带 5 秒冷却）
+    void do_alarmTriggered(const std::vector<DetectionResult> &r);//告警落地：截图 + 入库
+    void do_openAlarmHistory();                                  //告警记录查询对话框
     void do_errorOccurred(const QString &msg);                    //红字日志 + 按钮复位
     void do_sourceFinished();                                     //源播完 + 按钮复位
     void do_sourceOpened(const QString &desc);                    //日志
@@ -124,6 +128,7 @@ private:
     QLineEdit *m_BaoCun = nullptr;
     QToolButton *m_XuanZeLuJiing = nullptr;
     QPushButton *m_JieTu = nullptr;
+    QPushButton *m_AlarmHistory = nullptr;
 
     // ---- 界面侧状态 ----
     bool m_alarmEnabled = true;     //警报总开关（开启警报复选框）
