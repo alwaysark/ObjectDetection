@@ -52,6 +52,7 @@ void MainWindow::buildUi() {
     m_TuXiangShuChu->setAlignment(Qt::AlignCenter);
     m_TuXiangShuChu->setStyleSheet("background:#202020;color:#dddddd;");
     m_TuXiangShuChu->setText("等待检测...");
+    m_TuXiangShuChu->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);//防止窗口只能放大不能缩小
     layout_2->addWidget(m_TuXiangShuChu, 9);
 
     m_StatusLabel = new QLabel("状态：就绪");
