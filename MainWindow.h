@@ -27,6 +27,7 @@ class QTabWidget;       //选项卡部件
 class QCloseEvent;      //关闭事件
 class QSoundEffect;     //警报音播放（Qt Multimedia）
 class AlarmStore;       //告警记录库（SQLite）
+class VideoView;        //视频显示控件（自绘，替代 QLabel+QPixmap）
 
 #include "YoloDetector.h"   // do_resultReady 的参数里用到 DetectionResult
 
@@ -96,7 +97,7 @@ private slots:
 
 private:
     //主区域
-    QLabel *m_TuXiangShuChu = nullptr;
+    VideoView *m_TuXiangShuChu = nullptr;
     QTextBrowser *m_RiZhi = nullptr;
     QPushButton *m_QingChu = nullptr;
     QPushButton *m_BaoCunRiZhi = nullptr;

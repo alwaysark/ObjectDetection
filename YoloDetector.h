@@ -1,39 +1,31 @@
 //
 // YoloDetector —— 推理类：加载 onnx 模型 → 前处理 → 推理 → 后处理(NMS) → 画框
 //
-// 对应 Python 版 utils/detect.py 的 YOLOv5 类（t='onnxruntime' 路线）。
+// 推理引擎：onnxruntime 的 C++ API（onnxruntime_cxx_api.h，隐式链接官方预编译包）。
+// 前处理（缩放+归一化+NCHW）、后处理 NMS、画框全部自写：
+// 帧与结果只用 Qt 类型（QImage / QRect / QColor），整个类不出现 OpenCV。
 //
-// 推理引擎：onnxruntime 的 **C++ API**（onnxruntime_cxx_api.h）。
-// 项目已迁移到 MSVC 工具链，与官方预编译包同语言体系，因此：
-//   - 直接 #include 头文件 + 链接 onnxruntime.lib（隐式链接，加载器自动绑定）；
-//   - Ort::Session/Ort::Env 等 RAII 类自动管理资源，不再手动 Release；
-//   - 错误通过 Ort::Exception 异常上报，一次 try/catch 兜住全部调用；
-//   - Session 路径参数是 wchar_t*，QString::toStdWString 直达中文路径。
-// （旧方案"C API + LoadLibrary 动态加载"是 MinGW 时期的跨编译器做法，已留档。）
+// 推理输出是 YOLOv5 导出的 onnx：[1, 25200, 5+类别数]
+//   25200 = 三个尺度特征图的 anchor 格子总数（输入 640 时）
+//   每行  = cx, cy, w, h（相对模型输入）+ obj 置信度 + 各类别分
 //
-// 推理输出是 YOLOv5 导出的 onnx：[1, 25200, 7]
-//   25200 = 三个尺度特征图的 anchor 格子总数
-//   7     = 4 个框坐标(cx,cy,w,h) + 1 个目标置信度(obj) + 2 个类别分(fire, smoke)
-//
-// 顺手修了 Python 版的一个 bug：NMSBoxes 要求传 xywh（左上角+宽高），
-// Python 版传的是 xyxy，导致框越叠越大；C++ 版从源头就按 xywh 存。
-//
-
 #ifndef FIRESMOKEDETECTIONZCODE_YOLODETECTOR_H
 #define FIRESMOKEDETECTIONZCODE_YOLODETECTOR_H
 
 #include <QString>
+#include <QImage>
+#include <QRect>
+#include <QColor>
 #include <string>
 #include <vector>
 #include <memory>
-#include <opencv2/core.hpp>
 #include <onnxruntime_cxx_api.h>
 
 // 检测结果数据载体：一个被检出的目标
 struct DetectionResult {
     std::string label;    // 类别名，如 "fire" / "smoke"
-    float       score;    // 置信度 0~1
-    cv::Rect    box;      // 框（x, y, w, h），相对原图
+    float       score = 0;// 置信度 0~1
+    QRect       box;      // 框（x, y, w, h），相对原图
 };
 
 class YoloDetector {
@@ -50,13 +42,19 @@ public:
     void setConf(float v)     { m_conf = v; }
     void setIou(float v)      { m_iou = v; }
     void setDrawBox(bool b)   { m_drawBox = b; }
-    void setBoxColor(const cv::Scalar& rgb) { m_boxColor = rgb; }   // 注意是 RGB 顺序
+    void setBoxColor(const QColor& color) { m_boxColor = color; }
 
-    // 对一帧做检测。frame 进出都是 RGB 格式；drawBox 打开时会把框和标签画在 frame 上
-    std::vector<DetectionResult> detect(cv::Mat& frame);
+    // 对一帧做检测。frame 进出都是 RGB888；drawBox 打开时会把框和标签画在 frame 上
+    // （QPainter 绘制，类别名可以是中文）
+    std::vector<DetectionResult> detect(QImage& frame);
 
 private:
-    void drawDetections(cv::Mat& frame, const std::vector<DetectionResult>& dets) const;
+    // 双线性缩放到模型输入尺寸 + 归一化 + 打包 NCHW，结果写进 m_blob（复用缓冲）
+    void makeBlob(const QImage& src);
+    // 手写 NMS（与旧版 cv::dnn::NMSBoxes 同语义：类无关、按分数贪心、IoU 阈值抑制）
+    static void nmsBoxes(const std::vector<QRect>& boxes, const std::vector<float>& scores,
+                         float iouThr, std::vector<int>& keep);
+    void drawDetections(QImage& frame, const std::vector<DetectionResult>& dets) const;
 
     // ---- onnxruntime 对象（RAII 自动管理，无需手动 Release）----
     Ort::Env m_env{ORT_LOGGING_LEVEL_WARNING, "FireSmokeDetection"};
@@ -70,8 +68,9 @@ private:
     float  m_iou = 0.35f;                      // NMS 的 IoU 阈值
     bool   m_drawBox = true;                   // 是否把框画到帧上
     int    m_thickness = 2;                    // 框线宽
-    cv::Scalar m_boxColor{255, 0, 0};          // 框颜色（RGB 顺序，因为帧已经是 RGB）
+    QColor m_boxColor{255, 0, 0};              // 框颜色
     std::vector<std::string> m_classNames{"fire", "smoke"};   // 类别名兜底值
+    std::vector<float> m_blob;                 // 前处理复用缓冲（NCHW float）
 };
 
 #endif //FIRESMOKEDETECTIONZCODE_YOLODETECTOR_H

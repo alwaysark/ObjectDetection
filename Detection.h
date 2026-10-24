@@ -23,15 +23,15 @@
 
 #include "VideoSource.h"      // Detection 认识 VideoSource（依赖铁律）
 #include "YoloDetector.h"     // 顺带带来 DetectionResult 结构
+#include "Recorder.h"         // 录像（VideoWriter 封装，pimpl 藏 OpenCV）
 #include <QThread>
 #include <QImage>
 #include <QString>
+#include <QColor>
 #include <QMetaType>
 #include <atomic>
 #include <mutex>
 #include <memory>
-#include <opencv2/core.hpp>
-#include <opencv2/videoio.hpp>
 
 // 自定义类型要跨线程走信号（排队连接）时，必须先向 Qt 的元对象系统注册：
 // 这两行是给 std::vector<DetectionResult> 发信号用的"报关手续"
@@ -45,7 +45,7 @@ struct DetectConfig {
     float conf = 0.35f;                               // 置信度阈值
     float iou = 0.35f;                                // IOU 阈值
     bool drawBox = true;                              // 是否画锚框
-    cv::Scalar boxColor{255, 0, 0};                   // 框颜色（RGB）
+    QColor boxColor{255, 0, 0};                       // 框颜色
     bool recordVideo = false;                         // 是否录制检测视频
     int recordFps = 15;                               // 录制帧率
     QString saveDir;                                  // 录像保存目录
@@ -77,7 +77,7 @@ public:
     void setIou(float v)      { m_iou.store(v); }
     void setDrawBox(bool b)   { m_drawBox.store(b); }
     void setDisplayFps(bool b){ m_showFps.store(b); }
-    void setBoxColor(const cv::Scalar& rgb);                    // 多字段，用锁
+    void setBoxColor(const QColor& color);                       // 多字段，用锁
 
 signals:
     void frameReady(const QImage& img);                       // → 界面显示
@@ -122,13 +122,13 @@ private:
     std::atomic<float> m_conf{0.35f}, m_iou{0.35f};
     std::atomic_bool  m_drawBox{true}, m_showFps{true};
     std::mutex        m_colorMtx;
-    cv::Scalar        m_boxColor{255, 0, 0};
+    QColor            m_boxColor{255, 0, 0};
 
     // ---- 警报连击计数（连续 10 帧检出任意目标响一次，换模型/换类别语义不变）----
     int m_alarmStreak = 0;
 
     // ---- 录像（全部只在检测线程使用，无竞态）----
-    cv::VideoWriter m_writer;
+    Recorder        m_Recorder;       // mp4 编码（OpenCV 藏在其 pimpl 里）
     QString         m_recordPath;      // 当前录像文件路径
     bool            m_recordOn = false;
     int             m_recordFps = 15;

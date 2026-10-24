@@ -38,12 +38,12 @@
 #include <QHeaderView>
 #include <QDesktopServices>
 #include <QSqlQueryModel>
-#include <QPixmap>
 #include <QFileInfo>
 #include <algorithm>
 
 #include "Detection.h"
 #include "AlarmStore.h"
+#include "VideoView.h"
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_Detection = new Detection(this);      //父对象机制：主窗口销毁时自动 delete
@@ -85,11 +85,9 @@ void MainWindow::buildUi() {
     layout_1 -> addLayout(layout_2,3);
     layout_1 -> addLayout(layout_3,1);
 
-    //显示区域
-    m_TuXiangShuChu = new QLabel();
-    m_TuXiangShuChu->setAlignment(Qt::AlignCenter);
-    m_TuXiangShuChu->setStyleSheet("background:#202020;color:#dddddd;");
-    m_TuXiangShuChu->setText("等待输入源...");
+    //显示区域：自绘控件（QPainter 直接画 QImage，无 QPixmap 中转）
+    m_TuXiangShuChu = new VideoView();
+    m_TuXiangShuChu->setPlaceholder("等待输入源...");
     m_TuXiangShuChu->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);//防止窗口只能放大不能缩小
     layout_2 -> addWidget(m_TuXiangShuChu,9);
     QHBoxLayout *layout_4 = new QHBoxLayout;
@@ -327,7 +325,7 @@ void MainWindow::do_KaiShi_clicked() {
     cfg.conf = static_cast<float>(m_ZhiXinDu->value());
     cfg.iou = static_cast<float>(m_IOU->value());
     cfg.drawBox = m_XianShiMaoKuang->isChecked();
-    cfg.boxColor = cv::Scalar(m_boxColor.red(), m_boxColor.green(), m_boxColor.blue());
+    cfg.boxColor = m_boxColor;
     cfg.recordVideo = m_LuZhiShiPin->isChecked();
     cfg.recordFps = m_LuZhiZhenLv->value();
     cfg.saveDir = m_BaoCun->text();
@@ -476,7 +474,7 @@ void MainWindow::do_MaoKuangYanSe_clicked() {
     m_boxColor = c;
     m_MaoKuangYanSe->setStyleSheet(
             QString("background-color: rgb(%1,%2,%3);").arg(c.red()).arg(c.green()).arg(c.blue()));
-    m_Detection->setBoxColor(cv::Scalar(c.red(), c.green(), c.blue()));
+    m_Detection->setBoxColor(c);
 }
 
 // 录制相关：勾选/帧率只在"开始检测"时打包进配置，改动即时生效需要热更新，此处保持简单
@@ -501,12 +499,12 @@ void MainWindow::do_XuanZeLuJiing_clicked() {
 
 // 截图：把当前显示画面存成 png（对应 Python saveToFile(BaoCunJieTu)）
 void MainWindow::do_JieTu_clicked() {
-    const QPixmap pm = m_TuXiangShuChu->pixmap();   // Qt 6.8 起 pixmap() 按值返回
-    if (pm.isNull()) return;
+    const QImage img = m_TuXiangShuChu->image();
+    if (img.isNull()) return;
     QDir().mkpath(m_BaoCun->text());
     const QString path = m_BaoCun->text() + "/ScreenShot_" +
                          QDateTime::currentDateTime().toString("MM-dd HH-mm-ss") + ".png";
-    if (pm.save(path)) displayLog("截图已保存：" + path);
+    if (img.save(path)) displayLog("截图已保存：" + path);
     else displayLog("截图保存失败：" + path, "red");
 }
 
@@ -542,10 +540,9 @@ void MainWindow::displayLog(const QString &text, const QString &color) {
 }
 
 // ==================== 检测线程信号的接收槽 ====================
-// 显示画面：QImage → QPixmap，按标签大小等比缩放（对应 Python displayImg）
+// 显示画面：直接交给自绘控件（等比缩放在 paintEvent 里做）
 void MainWindow::do_frameReady(const QImage &img) {
-    m_TuXiangShuChu->setPixmap(QPixmap::fromImage(img).scaled(
-            m_TuXiangShuChu->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    m_TuXiangShuChu->setImage(img);     // 等比缩放交给 paintEvent，零中间转换
 }
 
 // 检测结果 → 日志。按类别分组显示（对应 Python 把 dict 打印出来的效果）：
@@ -592,7 +589,7 @@ void MainWindow::do_alarmTriggered(const std::vector<DetectionResult> &results) 
     rec.label = labels.join(", ");
 
     // 快照：把当前显示画面存到保存目录（失败留空路径）
-    const QPixmap pm = m_TuXiangShuChu->pixmap();   // Qt 6.8 起 pixmap() 按值返回
+    const QImage pm = m_TuXiangShuChu->image();
     if (!pm.isNull()) {
         QDir().mkpath(m_BaoCun->text());
         const QString shot = m_BaoCun->text() + "/alarm_" +
@@ -687,7 +684,7 @@ void MainWindow::loadConfig() {
     m_MaoKuangYanSe->setStyleSheet(QString("background-color: rgb(%1,%2,%3);")
                                            .arg(m_boxColor.red()).arg(m_boxColor.green())
                                            .arg(m_boxColor.blue()));
-    m_Detection->setBoxColor(cv::Scalar(m_boxColor.red(), m_boxColor.green(), m_boxColor.blue()));
+    m_Detection->setBoxColor(m_boxColor);
 
     // 下拉框恢复时挡住信号，避免启动瞬间就去开摄像头/文件
     m_FanZhuanTuXiang->blockSignals(true);

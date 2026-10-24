@@ -5,7 +5,8 @@
 #include "Detection.h"
 #include <QDebug>
 #include <QDateTime>
-#include <opencv2/imgproc.hpp>     // cvtColor / putText
+#include <QPainter>
+#include <QFont>
 #include <chrono>
 
 Detection::Detection(QObject* parent) : QThread(parent) {
@@ -49,9 +50,9 @@ void Detection::requestDetect(const DetectConfig& cfg) {
     m_cfgRequested = true;
 }
 
-void Detection::setBoxColor(const cv::Scalar& rgb) {
+void Detection::setBoxColor(const QColor& color) {
     std::lock_guard<std::mutex> lk(m_colorMtx);
-    m_boxColor = rgb;
+    m_boxColor = color;
 }
 
 
@@ -119,8 +120,8 @@ void Detection::applyDetectRequest() {
 
 // ---------- 关录像（仅检测线程调用） ----------
 void Detection::stopRecord() {
-    if (m_writer.isOpened()) {
-        m_writer.release();
+    if (m_Recorder.isOpened()) {
+        m_Recorder.close();
         emit infoMessage(QString("录像已保存：%1").arg(m_recordPath));
     }
 }
@@ -151,7 +152,7 @@ void Detection::run() {
             m_Mode->setConf(m_conf.load());
             m_Mode->setIou(m_iou.load());
             m_Mode->setDrawBox(m_drawBox.load());
-            cv::Scalar color;
+            QColor color;
             {
                 std::lock_guard<std::mutex> lk(m_colorMtx);
                 color = m_boxColor;
@@ -160,7 +161,7 @@ void Detection::run() {
         }
 
         // ===== ④ 取帧（read 返回 false ≙ Python 的 StopIteration）=====
-        cv::Mat frame;
+        QImage frame;
         if (!m_Source->read(frame)) {
             emit sourceFinished();
             stopRecord();
@@ -191,23 +192,18 @@ void Detection::run() {
 
             emit resultReady(results);
 
-            // 录制：第一帧到来时才知道画面尺寸，所以懒打开 VideoWriter
-            if (m_recordOn && !m_writer.isOpened()) {
+            // 录制：第一帧到来时才知道画面尺寸，所以懒打开 Recorder
+            if (m_recordOn && !m_Recorder.isOpened()) {
                 const QString head = QDateTime::currentDateTime().toString("MM-dd HH-mm-ss");
                 m_recordPath = m_recordDir + "/video_" + head + ".mp4";
-                m_writer.open(m_recordPath.toStdString(), cv::VideoWriter::fourcc('m', 'p', '4', 'v'),
-                              m_recordFps, cv::Size(frame.cols, frame.rows));
-                if (m_writer.isOpened())
+                if (m_Recorder.open(m_recordPath, m_recordFps, frame.width(), frame.height()))
                     emit infoMessage("开始录制检测视频...");
                 else
                     emit errorOccurred("录像文件创建失败：" + m_recordPath);
             }
-            if (m_writer.isOpened()) {
-                cv::Mat bgr;
-                cv::cvtColor(frame, bgr, cv::COLOR_RGB2BGR);   // VideoWriter 要 BGR
-                m_writer.write(bgr);
-            }
-        } else if (m_writer.isOpened()) {
+            if (m_Recorder.isOpened())
+                m_Recorder.write(frame);   // RGB→BGR 转换在 Recorder 内部
+        } else if (m_Recorder.isOpened()) {
             stopRecord();     // 停止检测时收尾录像文件
         }
 
@@ -220,18 +216,19 @@ void Detection::run() {
             fpsStart = steady_clock::now();
         }
         if (m_showFps.load() && !m_Source->isImage()) {
-            const std::string fpsText = "FPS:" + std::to_string(static_cast<int>(shownFps));
-            const int tf = 2;
-            cv::putText(frame, fpsText, cv::Point(10, 30),
-                        cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 0, 255), tf, cv::LINE_AA);
+            QPainter p(&frame);
+            QFont f = p.font();
+            f.setPixelSize(22);
+            f.setBold(true);
+            p.setFont(f);
+            p.setPen(QColor(255, 0, 0));
+            p.drawText(10, 30, "FPS:" + QString::number(static_cast<int>(shownFps)));
         }
 
         // ===== ⑦ 发帧给界面 =====
-        // cv::Mat → QImage：指定每行字节数(step) 构造，然后 copy() 深拷贝。
-        // 不 copy 的话 frame 复用缓冲后界面拿到的就是脏数据（悬垂指针的经典坑）
-        QImage img(frame.data, frame.cols, frame.rows,
-                   static_cast<int>(frame.step), QImage::Format_RGB888);
-        emit frameReady(img.copy());
+        // frame 是自有内存的 QImage（隐式共享）：排队连接会浅拷贝一份对象，
+        // 引用计数保证像素数据生命周期，不再需要手动深拷贝
+        emit frameReady(frame);
     }
 
     // ===== 线程退出前的收尾（此处仍在检测线程，可以安全销毁底层对象）=====

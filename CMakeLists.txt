@@ -26,9 +26,9 @@ add_compile_definitions(NOMINMAX)
 # Qt：界面 / 信号槽 / QThread / QSoundEffect 警报音 / Sql 告警入库
 find_package(Qt6 COMPONENTS Core Gui Widgets Multimedia Sql REQUIRED)
 
-# OpenCV（官方 MSVC 预编译版，opencv_world 单库）：解码、前处理 blob、NMS、画框
-# （dnn 模块只用于 blobFromImage / NMSBoxes；推理引擎是下面的 onnxruntime）
-find_package(OpenCV REQUIRED COMPONENTS core imgproc videoio imgcodecs dnn)
+# OpenCV 只用两样：core（Mat 内存布局）+ videoio（VideoCapture 解码 / VideoWriter 编码）。
+# 前处理/后处理/画框/翻转/旋转/图片读取全部 Qt（QImage/QPainter）自实现
+find_package(OpenCV REQUIRED COMPONENTS core videoio)
 
 add_executable(FireSmokeDetection
         main.cpp
@@ -36,6 +36,8 @@ add_executable(FireSmokeDetection
         Detection.cpp    Detection.h
         VideoSource.cpp  VideoSource.h
         YoloDetector.cpp YoloDetector.h
+        VideoView.cpp    VideoView.h      # 自绘视频控件（QPainter 画 QImage，无 QPixmap 中转）
+        Recorder.cpp     Recorder.h       # 录像 mp4 编码（VideoWriter 封装在 pimpl）
         AlarmStore.cpp    AlarmStore.h)     # 告警记录 SQLite 入库/查询
 
 # onnxruntime：官方 MSVC 预编译包，C++ API 隐式链接（头文件 + onnxruntime.lib）
