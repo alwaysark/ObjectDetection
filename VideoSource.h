@@ -10,7 +10,8 @@
 // 内部结构：
 //   - 视频文件/摄像头：解码线程持续 grab，只保留最新一帧（cv::Mat BGR）。
 //     read() 永远拿最新帧 —— 检测慢就丢帧，播放速度不受推理速度拖累。
-//     交付时才做 Mat→QImage（rgbSwapped 一次），消费多少转多少。
+//     交付时才做 Mat→QImage（BGR888 视图 + convertToFormat 重排成 RGB888），
+//     消费多少转多少。
 //   - 图片：open 时 QImageReader 读一次，read 第一次返回它、之后返回 false。
 //
 // OpenCV 全部藏在 pimpl（Impl）里：头文件只剩 Qt 类型。解码用 cv::VideoCapture，

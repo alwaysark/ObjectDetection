@@ -26,9 +26,10 @@ bool Recorder::isOpened() const {
 void Recorder::write(const QImage& frame) {
     if (!isOpened() || frame.isNull()) return;
 
-    // RGB888 → BGR888：交换 R/B 通道后内存布局正好是 Mat 要的 BGR
+    // RGB888 → BGR：convertToFormat 语义无歧义（保持外观、真实交换 R/B 字节、
+    // 产出自有内存）。不用 rgbSwapped——它只换字节不改格式标记，行为容易误读
     const QImage bgrImg = frame.format() == QImage::Format_BGR888
-                          ? frame : frame.rgbSwapped();
+                          ? frame : frame.convertToFormat(QImage::Format_BGR888);
     const int h = bgrImg.height(), w = bgrImg.width();
     if (d->bgr.rows != h || d->bgr.cols != w)
         d->bgr.create(h, w, CV_8UC3);

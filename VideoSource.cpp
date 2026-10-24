@@ -175,11 +175,14 @@ bool VideoSource::read(QImage& frame) {
         d->lastDelivered = d->frameNum;
     }
 
-    // Mat(BGR) → QImage(RGB)：先零拷贝包一层 BGR888 视图，rgbSwapped 产出
-    // 拥有独立内存的 RGB888 图（此后与 Mat 缓冲再无瓜葛）
+    // Mat(BGR) → QImage(RGB)：先零拷贝包一层 BGR888 视图（渲染语义正确），
+    // 再 convertToFormat 做真正的 R/B 字节重排，产出拥有独立内存的 RGB888 图。
+    // 注意不能用 rgbSwapped：它对 BGR888 只换字节不改格式标记，结果仍是
+    // BGR888——字节成了 RGB 顺序、标记却说是 BGR，渲染时红蓝颠倒
     QImage bgrView(raw.data, raw.cols, raw.rows, static_cast<int>(raw.step),
                    QImage::Format_BGR888);
-    frame = applyOrient(bgrView.rgbSwapped(), d->flip.load(), d->rotate.load());
+    frame = applyOrient(bgrView.convertToFormat(QImage::Format_RGB888),
+                        d->flip.load(), d->rotate.load());
     return true;
 }
 
