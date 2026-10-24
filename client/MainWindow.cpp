@@ -95,6 +95,7 @@ void MainWindow::buildUi() {
     m_TuXiangShuChu->setAlignment(Qt::AlignCenter);
     m_TuXiangShuChu->setStyleSheet("background:#202020;color:#dddddd;");
     m_TuXiangShuChu->setText("等待输入源...");
+    m_TuXiangShuChu->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);//防止窗口只能放大不能缩小
     layout_2 -> addWidget(m_TuXiangShuChu,7);
 
     m_BottomTabs = new QTabWidget();
