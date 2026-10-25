@@ -44,16 +44,22 @@ std::vector<DetectionResult> YoloDetector::detect(cv::Mat& frame, QString* err) 
     cv::Mat output;     //多维数组（张量）容器
     try {
         // ===== 前处理（OpenCV 代劳）=====
-        // blobFromImage 一次做完四件事：缩放到 yolov5-6.0 输入固定 640×640、乘 1/255 归一化、HWC→NCHW（高宽通道数->图片张数通道数高宽）、加 batch 维
+        // blobFromImage ：缩放到 yolov5-6.0 输入固定 640×640、乘 1/255 归一化、HWC→NCHW（高宽通道数->图片张数通道数高宽，加了 batch 维）
         // swapRB 传 false： VideoSource::read已经把frame转为 RGB，模型要的就是 RGB。
         // 注意这里是拉伸缩放不是 letterbox（等比缩放，不满塞灰边）：和下面 sx/sy 分轴缩放自洽。
         // CV_32F：每个元素 4 字节 float（C++ 的 float）。归一化之后数值变成 0.0~1.0 的小数，而 8 位整数只能装 0~255 的整数，装不下小数。神经网络的世界里数值全是 float
-        cv::Mat blob = cv::dnn::blobFromImage(frame, 1.0 / 255.0,
-                cv::Size(640, 640), cv::Scalar(), false, false, CV_32F);
+        cv::Mat blob = cv::dnn::blobFromImage(frame
+                                                , 1.0 / 255.0
+                                                , cv::Size(640, 640)
+                                                , cv::Scalar()
+                                                , false
+                                                , false
+                                                , CV_32F
+                                                );
 
         // ===== 推理 =====
         m_net.setInput(blob);                           //把 blob 挂到输入层
-        output = m_net.forward("output");   //推理输出 [1, 25200, 7] 是一张纯数字表格：25200 行、每行 7 个 float（cx, cy, w, h, obj, fire分, smoke分）
+        output = m_net.forward("output");   //推理输出 [1, 25200, 7] 三维数组是一张纯数字表格：25200 行、每行 7 个 float（cx, cy, w, h, obj, fire分, smoke分）
     } catch (const cv::Exception& e) {
         return results;                    // 推理出错：放弃本帧，不逃逸到调用方
     }
@@ -77,8 +83,6 @@ std::vector<DetectionResult> YoloDetector::detect(cv::Mat& frame, QString* err) 
         return results;
     }
 
-    cv::Mat out2d = output.reshape(1, rows);    //（cx, cy, w, h, obj, fire分, smoke分）
-
     // 框坐标是相对 640 输入的，按原图/输入的比例缩放回原图
     // （blobFromImage 是拉伸缩放，所以 x/y 要分轴各乘各的）
     const float sx = static_cast<float>(frame.cols) / 640;
@@ -87,6 +91,7 @@ std::vector<DetectionResult> YoloDetector::detect(cv::Mat& frame, QString* err) 
     std::vector<cv::Rect> boxes;            // xywh（NMSBoxes 要求的格式）
     std::vector<float>    scores;           //置信度
     std::vector<int>      classIds;         //类别ID
+    cv::Mat out2d = output.reshape(1, rows);    //（cx, cy, w, h, obj, fire分, smoke分）
 
     // 遍历25200个锚框，（cx, cy, w, h, obj, fire分, smoke分）
     // obj（objectness，目标置信度。接近 1 = 模型很确定这里有某个物体；接近 0 = 这里就是背景）
@@ -151,13 +156,13 @@ std::vector<DetectionResult> YoloDetector::detect(cv::Mat& frame, QString* err) 
     return results;
 }
 
-// ---------- 画框 + 标签（配色与 Python __formatResult 一致） ----------
+// ---------- 画框 + 标签 ----------
 void YoloDetector::drawDetections(cv::Mat& frame, const std::vector<DetectionResult>& dets) const {
     // 线宽随图像尺寸自适应：小图细线、大图粗线，但不低于设定的 thickness
     const int lw = std::max(static_cast<int>(std::lround((frame.rows + frame.cols) / 2.0 * 0.003)),
                             m_thickness);
     const int tf = std::max(lw - 1, 1);                       // 文字笔画粗细
-    // 文字颜色取框颜色的反色（255-x），保证在色块上看得清（Python 同款）
+    // 文字颜色取框颜色的反色（255-x），保证在色块上看得清
     const cv::Scalar txtColor(255 - m_boxColor[0], 255 - m_boxColor[1], 255 - m_boxColor[2]);
 
     for (const auto& r : dets) {
