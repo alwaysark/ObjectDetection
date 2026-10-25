@@ -57,6 +57,11 @@ public:
 private:
     void drawDetections(cv::Mat& frame, const std::vector<DetectionResult>& dets) const;
 
+    // 输出校验（形状 + 类别数）并转 2D 视图：
+    // 通过返回 [rows, attrs] 的 2D Mat（共享内存无拷贝，一行一个候选）；
+    // 不通过返回空 Mat，并把原因写入 *err
+    cv::Mat checkOutput(const cv::Mat& output, QString* err) const;
+
     // ---- 推理引擎：OpenCV dnn（隐式链接，无额外 DLL/加载代码）----
     cv::dnn::Net m_net;
 

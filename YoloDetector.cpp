@@ -36,6 +36,28 @@ bool YoloDetector::load(const QString& onnxPath, QString* err) {
     return false;
 }
 
+// ---------- 输出校验：形状 + 类别数，顺手转成 2D 视图 ----------
+cv::Mat YoloDetector::checkOutput(const cv::Mat& output, QString* err) const {
+    // 形状：yolov5-6.0 的输出固定是 [1, N, 5+类别数]。类别数因训练数据而异，
+    // 只要求 attrs ≥ 6（至少 1 类），rows/attrs 都从输出里读，不写死
+    if (output.dims != 3 || output.size[0] != 1 || output.size[2] < 6) {
+        if (err) *err = "模型输出形状不是 [1, 25200, 5+类别数]，不是 yolov5-6.0 导出格式";
+        return {};
+    }
+
+    // 类别数：类别文件的名字个数必须与模型输出类别数一致，
+    // 不一致按索引取名会错位/缺名
+    const int rows  = output.size[1];
+    const int attrs = output.size[2];
+    if (attrs - 5 != static_cast<int>(m_classNames.size())) {
+        if (err) *err = "类别文件与模型输出不匹配";
+        return {};
+    }
+
+    // batch 恒为 1，重排成 [rows, attrs] 的 2D 视图便于按行取（共享内存，无拷贝）
+    return output.reshape(1, rows);
+}
+
 // ---------- 检测一帧 ----------
 std::vector<DetectionResult> YoloDetector::detect(cv::Mat& frame, QString* err) {
     std::vector<DetectionResult> results;
@@ -58,26 +80,12 @@ std::vector<DetectionResult> YoloDetector::detect(cv::Mat& frame, QString* err) 
         return results;                    // 推理出错：放弃本帧，不逃逸到调用方
     }
 
-    // yolov5-6.0 的输出固定是 [1, 25200, 5+类别数]。类别数因训练数据而异，
-    // cv::Mat 的 dims 是维数。只要求 attrs ≥ 6（至少 1 类），rows/attrs 都从输出里读，不写死
-    if (output.dims != 3 || output.size[0] != 1 || output.size[2] < 6) {
-        if (err) *err = "模型输出形状不是 [1, 25200, 5+类别数]，不是 yolov5-6.0 导出格式";
-        return results;
-    }
+    // 校验输出（形状 + 类别数）并转成 2D 视图；校验不过返回空 Mat，原因已在 *err 里
+    cv::Mat out2d = checkOutput(output, err);
+    if (out2d.empty()) return results;
 
-    // batch 恒为 1，重排成 [25200, attrs] 的 2D 视图便于按行取（共享内存，无拷贝）
-    const int rows  = output.size[1];
-    const int attrs = output.size[2];
-    const int classCount = attrs - 5;
-
-    // 类别数校验：类别文件的名字个数必须与模型输出类别数一致，
-    // 不一致按索引取名会错位/缺名，直接报错（load 同款方式，调用方决定后续动作）
-    if (classCount != static_cast<int>(m_classNames.size())) {
-        if (err) *err = "类别文件与模型输出不匹配";
-        return results;
-    }
-
-    cv::Mat out2d = output.reshape(1, rows);    //（cx, cy, w, h, obj, fire分, smoke分）
+    const int rows       = out2d.rows;        // 25200 个候选，一行一个（cx, cy, w, h, obj, 各类别分）
+    const int classCount = out2d.cols - 5;
 
     // 框坐标是相对 640 输入的，按原图/输入的比例缩放回原图
     // （blobFromImage 是拉伸缩放，所以 x/y 要分轴各乘各的）
