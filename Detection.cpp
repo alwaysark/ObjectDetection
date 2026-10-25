@@ -104,7 +104,6 @@ void Detection::applyDetectRequest() {
         return;
     }
     m_Mode->setClasses(cfg.classNames);
-    m_classChecked = false;     // 换了新模型：类别数校验重新做（首帧推理后）
     m_Mode->setConf(m_conf.load());
     m_Mode->setIou(m_iou.load());
     m_Mode->setDrawBox(m_drawBox.load());
@@ -177,19 +176,13 @@ void Detection::run() {
         }
         if (m_isDetecting.load() && m_Mode) {
             // 推理 + 画框（结果直接画在 frame 上，一份数据两用：显示和录制）
-            std::vector<DetectionResult> results = m_Mode->detect(frame);
-
-            // 首帧校验一次：类别文件的名字个数 vs 模型输出的类别数（attrs-5）。
-            // 模型的类别数要推理一次才知道，所以校验放在这里而不是 load 时。
-            // 不匹配不中断检测：缺名字的类别显示为 class_数字，只给一条橙字警告
-            if (!m_classChecked && m_Mode->outputClassCount() >= 0) {
-                m_classChecked = true;
-                const int nNames = static_cast<int>(m_Mode->classNames().size());
-                const int nModel = m_Mode->outputClassCount();
-                if (nNames != nModel)
-                    emit warningOccurred(QString("类别文件与模型输出不匹配：类别文件 %1 个类别名，"
-                                                 "模型输出 %2 类（继续检测，缺名字的类别将显示为 class_数字）")
-                                         .arg(nNames).arg(nModel));
+            QString detectErr;
+            std::vector<DetectionResult> results = m_Mode->detect(frame, &detectErr);
+            if (!detectErr.isEmpty()) {
+                // 输出形状异常 / 类别数对不上：与模型加载失败同款处理——红字报错 + 回预览态
+                emit errorOccurred(detectErr);
+                m_isDetecting = false;
+                continue;
             }
 
             // 警报：连续 10 帧检出任意目标 → 发警报信号

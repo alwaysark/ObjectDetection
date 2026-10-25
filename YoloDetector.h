@@ -50,13 +50,9 @@ public:
     void setDrawBox(bool b)   { m_drawBox = b; }
     void setBoxColor(const cv::Scalar& rgb) { m_boxColor = rgb; }   // 注意是 RGB 顺序
 
-    // ---- 查询接口（类别数校验用，见 Detection::run 的首帧校验）----
-    // 模型输出类别数 = attrs-5；首帧推理成功后才有效，之前为 -1
-    int outputClassCount() const { return m_outClassCount; }
-    const std::vector<std::string>& classNames() const { return m_classNames; }
-
-    // 检测
-    std::vector<DetectionResult> detect(cv::Mat& frame);
+    // 检测一帧。输出形状异常 / 类别数与类别文件对不上时返回空结果，
+    // 并把原因写入 *err（与 load 同款报错方式）
+    std::vector<DetectionResult> detect(cv::Mat& frame, QString* err = nullptr);
 
 private:
     void drawDetections(cv::Mat& frame, const std::vector<DetectionResult>& dets) const;
@@ -69,8 +65,7 @@ private:
     bool   m_drawBox = true;                   // 是否把框画到帧上
     int    m_thickness = 2;                    // 框线宽
     cv::Scalar m_boxColor{255, 0, 0};          // 框颜色（RGB 顺序，因为帧已经是 RGB）
-    std::vector<std::string> m_classNames;    // 类别名表（一行一个、行序=类别索引，开始检测时由界面传入；空 = 全部显示 class_数字）
-    int m_outClassCount = -1;                 // 模型实际输出的类别数（首帧推理后写入）
+    std::vector<std::string> m_classNames;    // 类别名表（一行一个、行序=类别索引，开始检测时由界面传入）
 };
 
 #endif //FIRESMOKEDETECTIONZCODE_YOLODETECTOR_H

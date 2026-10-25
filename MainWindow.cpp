@@ -260,7 +260,6 @@ void MainWindow::bindSignal() {
     connect(m_Detection, &Detection::resultReady,    this, &MainWindow::do_resultReady);
     connect(m_Detection, &Detection::targetDetected, this, &MainWindow::do_targetDetected);
     connect(m_Detection, &Detection::errorOccurred,  this, &MainWindow::do_errorOccurred);
-    connect(m_Detection, &Detection::warningOccurred,this, &MainWindow::do_warningOccurred);
     connect(m_Detection, &Detection::sourceFinished, this, &MainWindow::do_sourceFinished);
     connect(m_Detection, &Detection::sourceOpened,   this, &MainWindow::do_sourceOpened);
     connect(m_Detection, &Detection::infoMessage,    this, &MainWindow::do_infoMessage);
@@ -415,7 +414,7 @@ QString MainWindow::loadClassFile(const QString &path) const {
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
     QStringList out;
     for (QString line : QString::fromUtf8(f.readAll()).split('\n')) {
-        line = line.trimmed();      // 去首尾空白，顺带处理 Windows 的行尾 \r
+        line = line.trimmed();              // 去首尾空白，顺带处理 Windows 的行尾 \r
         if (!line.isEmpty()) out << line;   // 空行跳过
     }
     return out.join(",");
@@ -556,11 +555,6 @@ void MainWindow::do_errorOccurred(const QString &msg) {
     displayLog(msg, "red");
     setRunningUi(false);
     m_sourceOpen = false;
-}
-
-// 警告（如类别文件与模型不匹配）：只记橙字日志，检测照常进行，不复位按钮
-void MainWindow::do_warningOccurred(const QString &msg) {
-    displayLog(msg, "orange");
 }
 
 void MainWindow::do_sourceFinished() {

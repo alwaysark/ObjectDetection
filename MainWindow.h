@@ -86,7 +86,6 @@ private slots:
     void do_resultReady(const std::vector<DetectionResult> &r);     //结果写日志
     void do_targetDetected();                                       //警报（带 5 秒冷却）
     void do_errorOccurred(const QString &msg);                      //红字日志 + 按钮复位
-    void do_warningOccurred(const QString &msg);                    //橙字警告日志（不复位按钮）
     void do_sourceFinished();                                       //源播完 + 按钮复位
     void do_sourceOpened(const QString &desc);                      //日志
     void do_infoMessage(const QString &msg);                        //一般提示日志
