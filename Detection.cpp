@@ -57,6 +57,11 @@ void Detection::setBoxColor(const cv::Scalar& rgb) {
     m_boxColor = rgb;
 }
 
+void Detection::setSaveDir(const QString& dir) {
+    std::lock_guard<std::mutex> lk(m_dirMtx);
+    m_recordDir = dir;
+}
+
 
 
 // ---------- 换源信箱的消费（仅检测线程调用） ----------
@@ -104,19 +109,14 @@ void Detection::applyDetectRequest() {
         return;
     }
     m_Mode->setClasses(cfg.classNames);
+    // 模型是新建的，立即灌一次热参数（run() 循环 ③ 每圈还会再搬运）
     m_Mode->setConf(m_conf.load());
     m_Mode->setIou(m_iou.load());
     m_Mode->setDrawBox(m_drawBox.load());
     {
         std::lock_guard<std::mutex> lk(m_colorMtx);
-        m_boxColor = cfg.boxColor;      // 框颜色是多字节组合，用锁不用 atomic
+        m_Mode->setBoxColor(m_boxColor);
     }
-    m_Mode->setBoxColor(cfg.boxColor);
-
-    // 录像配置
-    m_recordOn = cfg.recordVideo;
-    m_recordFps = cfg.recordFps;
-    m_recordDir = cfg.saveDir;
 }
 
 // ---------- 关录像（仅检测线程调用） ----------
@@ -197,12 +197,22 @@ void Detection::run() {
 
             emit resultReady(results);
 
-            // 录制：第一帧到来时才知道画面尺寸，所以懒打开 VideoWriter
-            if (m_recordOn && !m_writer.isOpened()) {
+            // 录像开关是热参数：运行中取消勾选 → 立刻封存当前文件
+            if (!m_recordOn.load() && m_writer.isOpened())
+                stopRecord();
+
+            // 录制：第一帧到来时才知道画面尺寸，所以懒打开 VideoWriter。
+            // 帧率/目录也在这里现读——改动只影响"下一个"文件
+            if (m_recordOn.load() && !m_writer.isOpened()) {
                 const QString head = QDateTime::currentDateTime().toString("MM-dd HH-mm-ss");
-                m_recordPath = m_recordDir + "/video_" + head + ".mp4";
+                QString dir;
+                {
+                    std::lock_guard<std::mutex> lk(m_dirMtx);
+                    dir = m_recordDir;
+                }
+                m_recordPath = dir + "/video_" + head + ".mp4";
                 m_writer.open(m_recordPath.toStdString(), cv::VideoWriter::fourcc('m', 'p', '4', 'v'),
-                              m_recordFps, cv::Size(frame.cols, frame.rows));
+                              m_recordFps.load(), cv::Size(frame.cols, frame.rows));
                 if (m_writer.isOpened())
                     emit infoMessage("开始录制检测视频...");
                 else

@@ -30,6 +30,7 @@ class QSoundEffect;     //警报音播放（Qt Multimedia）
 #include "YoloDetector.h"   // do_resultReady 的参数里用到 DetectionResult
 
 class Detection;
+struct DetectConfig;     // 打包助手 packDetectConfig() 的返回类型（定义见 Detection.h）
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -49,6 +50,7 @@ private:
     void displayLog(const QString &text, const QString &color = "black");   // 带时间戳写日志
     void setRunningUi(bool running);                    // 检测中禁用/恢复按钮
     QString loadClassFile(const QString &path) const;   // 读类别文件 → "fire,smoke"（一行一个类别名，行序=类别索引）
+    DetectConfig packDetectConfig() const;              // 从界面打包 {模型路径, 类别名}——开始检测与检测中换模型共用
     void loadConfig();      // 启动时恢复上次设置（QSettings）
     void saveConfig();      // 关窗时保存设置
 

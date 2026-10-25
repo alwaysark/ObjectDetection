@@ -265,6 +265,20 @@ void MainWindow::bindSignal() {
     connect(m_Detection, &Detection::infoMessage,    this, &MainWindow::do_infoMessage);
 }
 
+// ==================== 内部辅助：打包检测配置 ====================
+// 从界面控件打包 {模型路径, 类别名}。开始检测与检测中换模型两处共用。
+// 其余可调参数都是热参数（atomic/锁，各自改动时已实时同步），不进信箱
+DetectConfig MainWindow::packDetectConfig() const {
+    DetectConfig cfg;
+    cfg.modelPath = m_QuanZhong->text().trimmed();
+    // 类别编辑框的文本 → 列表（容忍中英文逗号、竖线、换行）
+    QStringList names;
+    for (const QString &tok : m_LeiBie->text().split(QRegularExpression("[,，|\\n]")))
+        if (!tok.trimmed().isEmpty()) names << tok.trimmed();
+    for (const QString &n : names) cfg.classNames.push_back(n.toStdString());
+    return cfg;
+}
+
 // ==================== 槽函数：操作区 ====================
 // 校验 → 打包配置投进信箱 → 确保源已打开 → 启动推理
 void MainWindow::do_KaiShi_clicked() {
@@ -292,22 +306,8 @@ void MainWindow::do_KaiShi_clicked() {
         }
     }
 
-    // ③ 从界面控件打包检测配置，投进信箱
-    DetectConfig cfg;
-    cfg.modelPath = model;
-    // 类别编辑框的文本 → 列表（容忍中英文逗号、竖线、换行）
-    QStringList names;
-    for (const QString &tok : m_LeiBie->text().split(QRegularExpression("[,，|\\n]")))
-        if (!tok.trimmed().isEmpty()) names << tok.trimmed();
-    for (const QString &n : names) cfg.classNames.push_back(n.toStdString());
-    cfg.conf = static_cast<float>(m_ZhiXinDu->value());
-    cfg.iou = static_cast<float>(m_IOU->value());
-    cfg.drawBox = m_XianShiMaoKuang->isChecked();
-    cfg.boxColor = cv::Scalar(m_boxColor.red(), m_boxColor.green(), m_boxColor.blue());
-    cfg.recordVideo = m_LuZhiShiPin->isChecked();
-    cfg.recordFps = m_LuZhiZhenLv->value();
-    cfg.saveDir = m_BaoCun->text();
-    m_Detection->requestDetect(cfg);
+    // ③ 打包 {模型路径, 类别名} 投进信箱（其余参数都是热参数，随时已同步）
+    m_Detection->requestDetect(packDetectConfig());
 
     // ④ 起飞：线程没跑就启动，再把推理开关拨到"开"
     m_Detection->StartThread();
@@ -391,6 +391,14 @@ void MainWindow::do_XuanZeQuanZhong_clicked() {
             break;
         }
     }
+
+    // 检测进行中：选完立即投信箱热切换模型。检测线程在两帧之间销毁旧模型、
+    // 加载新模型（期间画面停顿零点几秒、解码线程照常丢帧保实时，属正常）；
+    // 加载失败会走 errorOccurred → 回预览态，不影响预览
+    if (m_detectingUi) {
+        m_Detection->requestDetect(packDetectConfig());
+        displayLog("检测中切换模型：" + path);
+    }
 }
 
 // 选择类别文件：读文件（一行一个类别名）→ 填进编辑框
@@ -456,10 +464,20 @@ void MainWindow::do_MaoKuangYanSe_clicked() {
     m_Detection->setBoxColor(cv::Scalar(c.red(), c.green(), c.blue()));
 }
 
-// 录制开关/帧率只在点"开始检测"时打包进配置；运行中改动要重开检测才生效，槽暂留空
-void MainWindow::do_LuZhiShiPin_StateChanged(Qt::CheckState) {}
+// 录像开关：热参数——检测中勾上立即从下一帧起新文件，取消勾选立刻封存当前文件。
+// 同时锁定/解锁"录制帧率"和"保存路径"：录制进行中不许改（改了也只影响下一个文件）
+void MainWindow::do_LuZhiShiPin_StateChanged(Qt::CheckState state) {
+    const bool on = (state == Qt::Checked);
+    m_Detection->setRecordOn(on);
+    m_LuZhiZhenLv->setEnabled(!on);
+    m_BaoCun->setEnabled(!on);
+    m_XuanZeLuJiing->setEnabled(!on);
+}
 
-void MainWindow::do_LuZhiZhenLv_valueChanged(int) {}
+// 录制帧率：热参数。只在开新录像文件时读一次，改动只影响下一个文件（当前文件头已写死）
+void MainWindow::do_LuZhiZhenLv_valueChanged(int v) {
+    m_Detection->setRecordFps(v);
+}
 
 // 置信度/IOU：滑动即时生效（热更新走 atomic，不用重开模型）
 void MainWindow::do_ZhiXinDu_valueChanged(double v) {
@@ -473,7 +491,10 @@ void MainWindow::do_IOU_valueChanged(double v) {
 // 选择保存目录（截图/录像/日志都存这）
 void MainWindow::do_XuanZeLuJiing_clicked() {
     const QString dir = QFileDialog::getExistingDirectory(this, "选择保存位置", m_BaoCun->text());
-    if (!dir.isEmpty()) m_BaoCun->setText(dir);
+    if (!dir.isEmpty()) {
+        m_BaoCun->setText(dir);
+        m_Detection->setSaveDir(dir);      // 热参数：只影响下一个录像文件（截图/日志在点击时现读，不走线程）
+    }
 }
 
 // 截图：把当前显示画面存成 png
@@ -610,6 +631,10 @@ void MainWindow::loadConfig() {
 
     m_Detection->setFlip(m_FanZhuanTuXiang->currentIndex());
     m_Detection->setRotate(m_XuanZhuanTuXiang->currentIndex());
+
+    // 录像热参数同步恢复值（复选框恢复时会触发自己的槽同步开关；帧率/路径setText不触发信号，手动同步）
+    m_Detection->setRecordFps(m_LuZhiZhenLv->value());
+    m_Detection->setSaveDir(m_BaoCun->text());
 }
 
 void MainWindow::saveConfig() {

@@ -71,27 +71,24 @@ std::vector<DetectionResult> YoloDetector::detect(cv::Mat& frame, QString* err) 
         return results;
     }
 
-    // batch 恒为 1，重排成 [25200, attrs] 的 2D 视图便于按行取（共享内存，无拷贝）
     const int rows  = output.size[1];
     const int attrs = output.size[2];
     const int classCount = attrs - 5;
 
-    // 类别数校验：类别文件的名字个数必须与模型输出类别数一致，
-    // 不一致按索引取名会错位/缺名，直接报错（load 同款方式，调用方决定后续动作）
+    // 检查类别文件的名字个数与模型输出类别数是否一致，
     if (classCount != static_cast<int>(m_classNames.size())) {
         if (err) *err = "类别文件与模型输出不匹配";
         return results;
     }
 
-    // 框坐标是相对 640 输入的，按原图/输入的比例缩放回原图
-    // （blobFromImage 是拉伸缩放，所以 x/y 要分轴各乘各的）
+    // 求出宽高缩放比例，后面求框的时候把框放大回原图对应的大小
     const float sx = static_cast<float>(frame.cols) / 640;
     const float sy = static_cast<float>(frame.rows) / 640;
 
     std::vector<cv::Rect> boxes;            // xywh（NMSBoxes 要求的格式）
     std::vector<float>    scores;           //置信度
     std::vector<int>      classIds;         //类别ID
-    cv::Mat out2d = output.reshape(1, rows);    //（cx, cy, w, h, obj, fire分, smoke分）
+    cv::Mat out2d = output.reshape(1, rows);// batch 恒为 1，重排成 [25200, attrs] 的二维数组（cx, cy, w, h, obj, fire分, smoke分）
 
     // 遍历25200个锚框，（cx, cy, w, h, obj, fire分, smoke分）
     // obj（objectness，目标置信度。接近 1 = 模型很确定这里有某个物体；接近 0 = 这里就是背景）
