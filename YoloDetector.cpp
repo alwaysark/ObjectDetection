@@ -19,16 +19,19 @@ bool YoloDetector::load(const QString& onnxPath, QString* err) {
         m_net = cv::dnn::Net();    // Net 没有 release()，赋默认空对象即"清空"
         return false;
     }
-    // CPU 推理后端（OpenCV 自带，无额外依赖）
-    m_net.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
-    m_net.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
+    // 为 OpenCV 的深度神经网络（DNN）模块指定计算后台（Backend）和计算目标设备（Target）
+    m_net.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);    //opencv自带，无额外依赖
+    m_net.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);         //使用CPU
 
     // yolov5-6.0 的终输出层固定叫 "output"。load 时校验一次存在性：
     // 名字对不上 forward("output") 就每帧抛异常，detect() 只能每帧静默空结果
-    const std::vector<cv::String> outs = m_net.getUnconnectedOutLayersNames();
-    for (const cv::String& n : outs)
+    const std::vector<cv::String> outs = m_net.getUnconnectedOutLayersNames();      //直接获取神经网络中所有“输出层”的名称
+    for (const cv::String& n : outs) {
         if (n == "output") return true;
-    if (err) *err = "模型不是 yolov5-6.0 导出格式：找不到终输出层 \"output\"";
+    }
+    if (err) {
+        *err = "模型不是 yolov5-6.0 导出格式：找不到终输出层 \"output\"";
+    }
     m_net = cv::dnn::Net();
     return false;
 }
@@ -38,26 +41,25 @@ std::vector<DetectionResult> YoloDetector::detect(cv::Mat& frame) {
     std::vector<DetectionResult> results;
     if (m_net.empty() || frame.empty()) return results;
 
-    cv::Mat output;
+    cv::Mat output;     //多维数组（张量）容器
     try {
         // ===== 前处理（OpenCV 代劳）=====
-        // blobFromImage 一次做完四件事：缩放到 yolov5-6.0 输入固定 640×640、乘 1/255 归一化、HWC→NCHW、加 batch 维
+        // blobFromImage 一次做完四件事：缩放到 yolov5-6.0 输入固定 640×640、乘 1/255 归一化、HWC→NCHW（高宽通道数->图片张数通道数高宽）、加 batch 维
         // swapRB 传 false： VideoSource::read已经把frame转为 RGB，模型要的就是 RGB。
-        // 注意这里是拉伸缩放不是 letterbox：和下面 sx/sy 分轴缩放自洽。
+        // 注意这里是拉伸缩放不是 letterbox（等比缩放，不满塞灰边）：和下面 sx/sy 分轴缩放自洽。
+        // CV_32F：每个元素 4 字节 float（C++ 的 float）。归一化之后数值变成 0.0~1.0 的小数，而 8 位整数只能装 0~255 的整数，装不下小数。神经网络的世界里数值全是 float
         cv::Mat blob = cv::dnn::blobFromImage(frame, 1.0 / 255.0,
                 cv::Size(640, 640), cv::Scalar(), false, false, CV_32F);
 
         // ===== 推理 =====
-        // 按名取终输出层 "output"。OpenCV 会裁掉该层不依赖的分支，
-        // 所以取终输出时三个检测头各自的输出根本不用算。
-        m_net.setInput(blob);
-        output = m_net.forward("output");
+        m_net.setInput(blob);                           //把 blob 挂到输入层
+        output = m_net.forward("output");   //推理输出 [1, 25200, 7] 是一张纯数字表格：25200 行、每行 7 个 float（cx, cy, w, h, obj, fire分, smoke分）
     } catch (const cv::Exception& e) {
         return results;                    // 推理出错：放弃本帧，不逃逸到调用方
     }
 
     // yolov5-6.0 的输出固定是 [1, 25200, 5+类别数]。类别数因训练数据而异，
-    // 只要求 attrs ≥ 6（至少 1 类），rows/attrs 都从输出里读，不写死
+    // cv::Mat 的 dims 是维数。只要求 attrs ≥ 6（至少 1 类），rows/attrs 都从输出里读，不写死
     if (output.dims != 3 || output.size[0] != 1 || output.size[2] < 6)
         return results;
 
@@ -65,36 +67,48 @@ std::vector<DetectionResult> YoloDetector::detect(cv::Mat& frame) {
     const int rows  = output.size[1];
     const int attrs = output.size[2];
     const int classCount = attrs - 5;
-    cv::Mat out2d = output.reshape(1, rows);
+    m_outClassCount = classCount;   // 记下模型实际输出的类别数（首帧校验用：和类别文件的名字个数对不对得上）
+    cv::Mat out2d = output.reshape(1, rows);    //（cx, cy, w, h, obj, fire分, smoke分）
 
     // 框坐标是相对 640 输入的，按原图/输入的比例缩放回原图
     // （blobFromImage 是拉伸缩放，所以 x/y 要分轴各乘各的）
     const float sx = static_cast<float>(frame.cols) / 640;
     const float sy = static_cast<float>(frame.rows) / 640;
 
-    std::vector<cv::Rect> boxes;           // xywh（NMSBoxes 要求的格式）
-    std::vector<float>    scores;
-    std::vector<int>      classIds;
+    std::vector<cv::Rect> boxes;            // xywh（NMSBoxes 要求的格式）
+    std::vector<float>    scores;           //置信度
+    std::vector<int>      classIds;         //类别ID
 
+    // 遍历25200个锚框，（cx, cy, w, h, obj, fire分, smoke分）
+    // obj（objectness，目标置信度。接近 1 = 模型很确定这里有某个物体；接近 0 = 这里就是背景）
+    // fire分、smoke分（类别分，class score）
+    // 置信度 = 对象置信度 × 类别概率
     for (int i = 0; i < rows; ++i) {
         const float* p = out2d.ptr<float>(i);
 
         const float obj = p[4];            // 这格里"有没有东西"的置信度
-        if (obj <= m_conf) continue;       // 第一道门槛：先筛掉大半候选
+        if (obj <= m_conf) {
+            continue;       // 第一道门槛：先筛掉大半候选
+        }
 
-        // 在各类别分里挑最高的
+        // 找出类别分最高的那个
         int bestClass = 0;
-        float bestClassScore = p[5];
-        for (int c = 1; c < classCount; ++c) {
-            if (p[5 + c] > bestClassScore) { bestClassScore = p[5 + c]; bestClass = c; }
+        float bestClassScore = p[5];    //默认第一个要检测的类别分最高
+        for (int c = 1; c < classCount; ++c) {  //遍历后面的类别
+            if (p[5 + c] > bestClassScore) {    //如果后面的类别分更高就拿到更高那个
+                bestClassScore = p[5 + c];
+                bestClass = c;
+            }
         }
 
         const float score = obj * bestClassScore;   // 最终得分 = obj × 类别分（YOLOv5 惯例）
         if (score <= m_conf) continue;              // 第二道门槛
 
         // 中心坐标 + 宽高，缩放回原图，再换算成左上角 xywh
-        const float cx = p[0] * sx, cy = p[1] * sy;
-        const float w  = p[2] * sx, h  = p[3] * sy;
+        const float cx = p[0] * sx;
+        const float cy = p[1] * sy;
+        const float w  = p[2] * sx;
+        const float h  = p[3] * sy;
         cv::Rect box(static_cast<int>(cx - w / 2), static_cast<int>(cy - h / 2),
                      static_cast<int>(w), static_cast<int>(h));
 

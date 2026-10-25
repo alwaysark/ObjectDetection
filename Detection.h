@@ -82,6 +82,7 @@ signals:
     void resultReady(const std::vector<DetectionResult>& r);  // → 界面日志
     void targetDetected();                                    // → 警报（连续 10 帧检出任意目标）
     void errorOccurred(const QString& msg);                   // → 红字日志 + 按钮复位
+    void warningOccurred(const QString& msg);                 // → 橙字警告日志（不中断检测、不复位按钮）
     void sourceFinished();                                    // → 日志 + 按钮复位
     void sourceOpened(const QString& desc);                   // → 日志
     void infoMessage(const QString& msg);                     // → 一般提示（录像开始/保存等）
@@ -126,6 +127,9 @@ private:
 
     // ---- 警报连击计数（连续 10 帧检出任意目标响一次）----
     int m_alarmStreak = 0;
+
+    // ---- 类别数校验（每个模型实例只查一次：模型类别数要首帧推理后才知道）----
+    bool m_classChecked = false;
 
     // ---- 录像（全部只在检测线程使用，无竞态）----
     cv::VideoWriter m_writer;

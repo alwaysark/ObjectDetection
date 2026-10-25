@@ -48,7 +48,7 @@ private:
     // ---- 内部辅助 ----
     void displayLog(const QString &text, const QString &color = "black");   // 带时间戳写日志
     void setRunningUi(bool running);                    // 检测中禁用/恢复按钮
-    QString loadClassFile(const QString &path) const;   // 读类别文件 → "fire,smoke"（剥序号）
+    QString loadClassFile(const QString &path) const;   // 读类别文件 → "fire,smoke"（一行一个类别名，行序=类别索引）
     void loadConfig();      // 启动时恢复上次设置（QSettings）
     void saveConfig();      // 关窗时保存设置
 
@@ -86,6 +86,7 @@ private slots:
     void do_resultReady(const std::vector<DetectionResult> &r);     //结果写日志
     void do_targetDetected();                                       //警报（带 5 秒冷却）
     void do_errorOccurred(const QString &msg);                      //红字日志 + 按钮复位
+    void do_warningOccurred(const QString &msg);                    //橙字警告日志（不复位按钮）
     void do_sourceFinished();                                       //源播完 + 按钮复位
     void do_sourceOpened(const QString &desc);                      //日志
     void do_infoMessage(const QString &msg);                        //一般提示日志

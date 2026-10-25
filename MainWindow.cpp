@@ -260,6 +260,7 @@ void MainWindow::bindSignal() {
     connect(m_Detection, &Detection::resultReady,    this, &MainWindow::do_resultReady);
     connect(m_Detection, &Detection::targetDetected, this, &MainWindow::do_targetDetected);
     connect(m_Detection, &Detection::errorOccurred,  this, &MainWindow::do_errorOccurred);
+    connect(m_Detection, &Detection::warningOccurred,this, &MainWindow::do_warningOccurred);
     connect(m_Detection, &Detection::sourceFinished, this, &MainWindow::do_sourceFinished);
     connect(m_Detection, &Detection::sourceOpened,   this, &MainWindow::do_sourceOpened);
     connect(m_Detection, &Detection::infoMessage,    this, &MainWindow::do_infoMessage);
@@ -393,27 +394,29 @@ void MainWindow::do_XuanZeQuanZhong_clicked() {
     }
 }
 
-// 选择类别文件：读文件 → 统一分隔符 → 剥序号 → 填进编辑框
+// 选择类别文件：读文件（一行一个类别名）→ 填进编辑框
 void MainWindow::do_XuanZeLeiBie_clicked() {
-    const QString path = QFileDialog::getOpenFileName(this, "选择类别文件",
-            QString(), "类别文件 (*.txt)");
+    const QString path = QFileDialog::getOpenFileName(this
+                                                        , "选择类别文件"
+                                                        ,QString()
+                                                        , "类别文件 (*.txt)"
+                                                        );
     if (path.isEmpty()) return;
     const QString text = loadClassFile(path);
     if (!text.isEmpty()) m_LeiBie->setText(text);
 }
 
-// 读类别文件：兼容换行/逗号/中文逗号/竖线分隔，剥掉 "1 fire" 这种行号前缀
+// 读类别文件。格式是硬约定（README 有说明）：一行一个类别名，行序 = 类别索引
+// （第 1 行 = 类别 0，必须与训练时的类别顺序一致）。
+// 不做宽容解析：不剥行首序号（"1 fire" 会被当成名字 "1 fire"），也不支持逗号/竖线分隔。
+// 名字个数与模型输出类别数是否匹配在检测线程首帧校验（Detection::run），不在这里管
 QString MainWindow::loadClassFile(const QString &path) const {
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
-    QString text = QString::fromUtf8(f.readAll());
-    text.replace(QStringLiteral("，"), ",").replace('|', ',').replace('\n', ',');
-    static const QRegularExpression leadingNumber("^\\d+\\s+");
     QStringList out;
-    for (QString tok : text.split(',')) {
-        tok = tok.trimmed();
-        tok.remove(leadingNumber);
-        if (!tok.isEmpty()) out << tok;
+    for (QString line : QString::fromUtf8(f.readAll()).split('\n')) {
+        line = line.trimmed();      // 去首尾空白，顺带处理 Windows 的行尾 \r
+        if (!line.isEmpty()) out << line;   // 空行跳过
     }
     return out.join(",");
 }
@@ -553,6 +556,11 @@ void MainWindow::do_errorOccurred(const QString &msg) {
     displayLog(msg, "red");
     setRunningUi(false);
     m_sourceOpen = false;
+}
+
+// 警告（如类别文件与模型不匹配）：只记橙字日志，检测照常进行，不复位按钮
+void MainWindow::do_warningOccurred(const QString &msg) {
+    displayLog(msg, "orange");
 }
 
 void MainWindow::do_sourceFinished() {
