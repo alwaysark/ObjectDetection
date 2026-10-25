@@ -36,17 +36,12 @@
 Q_DECLARE_METATYPE(DetectionResult)
 Q_DECLARE_METATYPE(std::vector<DetectionResult>)
 
-// 检测配置：点"开始检测"时把界面控件打包成这个结构，经信箱送进检测线程
+// 检测配置：点"开始检测"（或检测中换模型）时打包，经信箱送进检测线程。
+// 只装"必须走信箱"的两样：复合类型 + 需要检测线程重建模型的动作；
+// 其余可调参数全部是热参数（atomic / 锁），见类成员
 struct DetectConfig {
     QString modelPath;                                // 权重路径
     std::vector<std::string> classNames;              // 类别名（fire/smoke）
-    float conf = 0.35f;                               // 置信度阈值
-    float iou = 0.35f;                                // IOU 阈值
-    bool drawBox = true;                              // 是否画锚框
-    cv::Scalar boxColor{255, 0, 0};                   // 框颜色（RGB）
-    bool recordVideo = false;                         // 是否录制检测视频
-    int recordFps = 15;                               // 录制帧率
-    QString saveDir;                                  // 录像保存目录
 };
 
 class Detection : public QThread {
@@ -76,6 +71,11 @@ public:
     void setDrawBox(bool b)   { m_drawBox.store(b); }
     void setDisplayFps(bool b){ m_showFps.store(b); }
     void setBoxColor(const cv::Scalar& rgb);                    // 多字段，用锁
+
+    // ---- 录像热参数 ----
+    void setRecordOn(bool b)  { m_recordOn.store(b); }          // 勾上=下一帧起新文件；取消=立刻封存当前文件
+    void setRecordFps(int v)  { m_recordFps.store(v); }         // 只在开新文件时读，改动只影响下一个文件
+    void setSaveDir(const QString& dir);                        // QString 没法原子，用锁（同 setBoxColor 模式）
 
 signals:
     void frameReady(const QImage& img);                       // → 界面显示
@@ -125,12 +125,13 @@ private:
     // ---- 警报连击计数（连续 10 帧检出任意目标响一次）----
     int m_alarmStreak = 0;
 
-    // ---- 录像（全部只在检测线程使用，无竞态）----
-    cv::VideoWriter m_writer;
-    QString         m_recordPath;      // 当前录像文件路径
-    bool            m_recordOn = false;
-    int             m_recordFps = 15;
-    QString         m_recordDir;
+    // ---- 录像：文件写入只在检测线程；开关/帧率/目录是热参数（UI 写、run 读）----
+    cv::VideoWriter  m_writer;
+    QString          m_recordPath;             // 当前录像文件路径（仅检测线程）
+    std::atomic_bool m_recordOn{false};
+    std::atomic_int  m_recordFps{15};
+    std::mutex       m_dirMtx;                 // 保护 m_recordDir
+    QString          m_recordDir;
 };
 
 #endif //FIRESMOKEDETECTIONZCODE_DETECTION_H

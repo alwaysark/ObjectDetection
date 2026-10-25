@@ -34,6 +34,7 @@ class QTableView;       //告警记录表（对话框里用）
 
 class Detection;
 class AlarmReporter;        // 告警外发客户端（TCP 自定义协议）
+struct DetectConfig;        // 打包助手 packDetectConfig() 的返回类型（定义见 Detection.h）
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -53,6 +54,7 @@ private:
     void displayLog(const QString &text, const QString &color = "black");   // 带时间戳写日志
     void setRunningUi(bool running);                    // 检测中禁用/恢复按钮
     QString loadClassFile(const QString &path) const;   // 读类别文件 → "fire,smoke"（剥序号）
+    DetectConfig packDetectConfig() const;              // 从界面打包 {模型路径, 类别名}——开始检测与检测中换模型共用
     void loadConfig();      // 启动时恢复上次设置（QSettings）
     void saveConfig();      // 关窗时保存设置
 
