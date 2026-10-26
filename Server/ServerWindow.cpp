@@ -48,22 +48,17 @@ private slots:
             }
             const int bodyLen = quint8(m_buf[2]) | (quint8(m_buf[3]) << 8);
             const int total   = HEADER_SIZE + bodyLen - 1;
-            if (bodyLen < 1 + CRC_SIZE || total > 64 * 1024) {
+            if (bodyLen < 1 || total > 64 * 1024) {
                 m_buf.remove(0, 2);                            // 非法帧长：丢帧头重找
                 continue;
             }
             if (m_buf.size() < total) return;                  // 断包：等下一次 readyRead
 
-            const QByteArray body    = m_buf.mid(4, bodyLen - CRC_SIZE);
-            const int        crcPos  = 4 + bodyLen - CRC_SIZE;
-            const quint16    crcRecv = quint8(m_buf[crcPos]) | (quint8(m_buf[crcPos + 1]) << 8);
+            // body = 命令字+数据域。无应用层 CRC：传输可靠性由 TCP 自身的校验和与重传保证
+            const QByteArray body    = m_buf.mid(4, bodyLen);
             m_buf.remove(0, total);                            // 消费掉这一帧
-            if (crc16Modbus(body) != crcRecv)
-                continue;                                      // CRC 不对：丢帧
 
             const quint8     cmd     = quint8(body[0]);
-            // body = 命令字+数据域（切帧时已排除 CRC），去掉开头 1 字节命令字即数据域
-            // （历史 bug：这里曾多减一次 CRC_SIZE，把 JSON 尾部 2 字节砍掉，解析必失败）
             const QByteArray payload = body.mid(1, body.size() - 1);
             switch (cmd) {
             case CMD_ALARM: {
@@ -95,23 +90,12 @@ signals:
 private:
     // ---- 协议工具（与客户端同款实现）----
     static QByteArray buildFrame(quint8 cmd, const QByteArray& payload) {
-        const int bodyLen = 1 + payload.size() + CRC_SIZE;
+        const int bodyLen = 1 + payload.size();
         QByteArray f;
         f.append(char(MAGIC0)).append(char(MAGIC1));
         f.append(char(bodyLen & 0xFF)).append(char((bodyLen >> 8) & 0xFF));
         f.append(char(cmd)).append(payload);
-        const quint16 crc = crc16Modbus(f.mid(4));
-        f.append(char(crc & 0xFF)).append(char((crc >> 8) & 0xFF));
         return f;
-    }
-    static quint16 crc16Modbus(const QByteArray& data) {
-        quint16 crc = 0xFFFF;
-        for (char byte : data) {
-            crc ^= quint8(byte);
-            for (int b = 0; b < 8; ++b)
-                crc = (crc & 1) ? (crc >> 1) ^ 0xA001 : (crc >> 1);
-        }
-        return crc;
     }
 
     QTcpSocket* m_sock;
@@ -119,7 +103,7 @@ private:
 
     static const quint8 MAGIC0 = 0xAA, MAGIC1 = 0x55;
     static const quint8 CMD_ALARM = 0x01, CMD_HEARTBEAT = 0x02, CMD_ACK = 0x81;
-    static const int    HEADER_SIZE = 5, CRC_SIZE = 2;
+    static const int    HEADER_SIZE = 5;
 };
 
 // ==================== 窗口 ====================

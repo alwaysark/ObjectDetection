@@ -2,12 +2,13 @@
 // AlarmReporter —— 报警外发客户端（TCP + 自定义二进制协议）。
 //
 // 协议帧结构（小端）：
-//   ┌────────┬────────┬────────┬─────────┬──────────┐
-//   │ 帧头    │ 帧长    │ 命令字  │ 数据域   │ CRC16    │
-//   │ 2B     │ 2B     │ 1B     │ NB      │ 2B       │
-//   │ AA 55  │ N+3    │ 1B     │ JSON    │ modbus   │
-//   └────────┴────────┴────────┴─────────┴──────────┘
-//   帧长 = 命令字 + 数据域 + CRC 的总字节数；CRC16-Modbus 覆盖 命令字+数据域
+//   ┌────────┬────────┬────────┬─────────┐
+//   │ 帧头    │ 帧长    │ 命令字  │ 数据域   │
+//   │ 2B     │ 2B     │ 1B     │ NB      │
+//   │ AA 55  │ N+1    │ 1B     │ JSON    │
+//   └────────┴────────┴────────┴─────────┘
+//   帧长 = 命令字 + 数据域 的总字节数。
+//   不做应用层 CRC：传输可靠性由 TCP 自身的校验和与重传保证，不重复造
 //
 // 命令字：
 //   0x01 客户端→平台  报警上报（数据域 = AlarmRecord 的 JSON）
@@ -63,7 +64,6 @@ private slots:
 private:
     // 协议工具（static：不依赖实例状态，方便单测）
     static QByteArray buildFrame(quint8 cmd, const QByteArray& payload);
-    static quint16 crc16Modbus(const QByteArray& data);   // CRC16-Modbus（多项式 0x8005 反射）
 
     // 从 m_rxBuf 里切出一帧；返回 false 表示数据不够（留着等下一次 readyRead）
     bool tryParseFrame(QByteArray& outFrame);

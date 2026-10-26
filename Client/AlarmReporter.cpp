@@ -13,7 +13,6 @@ static const quint8  CMD_ALARM    = 0x01;
 static const quint8  CMD_HEARTBEAT= 0x02;
 static const quint8  CMD_ACK      = 0x81;
 static const int     HEADER_SIZE  = 5;    // 帧头2 + 帧长2 + 命令字1
-static const int     CRC_SIZE     = 2;
 
 AlarmReporter::AlarmReporter(QObject* parent) : QObject(parent) {
     connect(&m_socket, &QTcpSocket::readyRead, this, &AlarmReporter::onReadyRead);
@@ -117,7 +116,7 @@ void AlarmReporter::onReadyRead() {
     if (m_rxBuf.size() > 1024 * 1024) m_rxBuf.clear();
 }
 
-// 切帧逻辑：找帧头 → 读帧长 → 数据够不够 → CRC 校验。
+// 切帧逻辑：找帧头 → 读帧长 → 数据够不够。
 // 用循环不用递归：垃圾字节流下递归深度 = 垃圾字节数，会打穿栈
 bool AlarmReporter::tryParseFrame(QByteArray& outFrame) {
     for (;;) {
@@ -129,10 +128,10 @@ bool AlarmReporter::tryParseFrame(QByteArray& outFrame) {
             continue;
         }
 
-        // ② 帧长（小端）：命令字+数据域+CRC
+        // ② 帧长（小端）：命令字+数据域
         const int bodyLen = quint8(m_rxBuf[2]) | (quint8(m_rxBuf[3]) << 8);
-        const int total   = HEADER_SIZE + bodyLen - 1;  // 帧头2+帧长2 + 命令字1+数据域+CRC2
-        if (bodyLen < 1 + CRC_SIZE || total > 64 * 1024) {
+        const int total   = HEADER_SIZE + bodyLen - 1;  // 帧头2+帧长2 + 命令字1+数据域
+        if (bodyLen < 1 || total > 64 * 1024) {
             m_rxBuf.remove(0, 2);                   // 非法帧长：当垃圾丢掉帧头继续找
             continue;
         }
@@ -140,47 +139,22 @@ bool AlarmReporter::tryParseFrame(QByteArray& outFrame) {
         // ③ 数据够不够一帧（断包：不够就留着等下一次 readyRead）
         if (m_rxBuf.size() < total) return false;
 
-        // ④ CRC 校验：覆盖 命令字+数据域
-        const QByteArray body = m_rxBuf.mid(4, bodyLen - CRC_SIZE);
-        const int crcPos = 4 + bodyLen - CRC_SIZE;
-        const quint16 crcRecv = quint8(m_rxBuf[crcPos]) | (quint8(m_rxBuf[crcPos + 1]) << 8);
-        m_rxBuf.remove(0, total);                   // 无论校验过不过，这帧都消费掉
-
-        if (crc16Modbus(body) != crcRecv) {
-            qDebug() << "AlarmReporter: CRC mismatch, drop frame";
-            continue;                               // 丢弃坏帧，切后面的
-        }
-        outFrame = body;
+        outFrame = m_rxBuf.mid(4, bodyLen);         // 命令字+数据域（可靠性由 TCP 保证，无应用层 CRC）
+        m_rxBuf.remove(0, total);
         return true;
     }
 }
 
-// ---- 组帧：帧头 + 帧长 + 命令字 + 数据域 + CRC ----
+// ---- 组帧：帧头 + 帧长 + 命令字 + 数据域 ----
 QByteArray AlarmReporter::buildFrame(quint8 cmd, const QByteArray& payload) {
-    const int bodyLen = 1 + payload.size() + CRC_SIZE;
+    const int bodyLen = 1 + payload.size();
     QByteArray f;
-    f.reserve(HEADER_SIZE + payload.size() + CRC_SIZE);
+    f.reserve(HEADER_SIZE + payload.size());
     f.append(char(FRAME_MAGIC0));
     f.append(char(FRAME_MAGIC1));
     f.append(char(bodyLen & 0xFF));                 // 小端低字节
     f.append(char((bodyLen >> 8) & 0xFF));          // 小端高字节
     f.append(char(cmd));
     f.append(payload);
-    const quint16 crc = crc16Modbus(f.mid(4));      // CRC 覆盖 命令字+数据域
-    f.append(char(crc & 0xFF));
-    f.append(char((crc >> 8) & 0xFF));
     return f;
-}
-
-// ---- CRC16-Modbus：多项式 0x8005（反射 0xA001），初值 0xFFFF，结果不取反 ----
-quint16 AlarmReporter::crc16Modbus(const QByteArray& data) {
-    quint16 crc = 0xFFFF;
-    for (char byte : data) {
-        crc ^= quint8(byte);
-        for (int bit = 0; bit < 8; ++bit) {
-            if (crc & 1) crc = (crc >> 1) ^ 0xA001;
-            else         crc >>= 1;
-        }
-    }
-    return crc;
 }
