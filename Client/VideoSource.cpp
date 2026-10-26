@@ -128,6 +128,7 @@ bool VideoSource::read(cv::Mat& frame) {
         // 不能"超时一次就当结束"——摄像头预热期第一帧经常超过 200ms，
         // 可能是"暂时没帧"，不是"源结束"
         std::unique_lock<std::mutex> lk(m_mtx);
+        // 三个条件当前帧是最新帧，解码线程在运行，视频没有检测完
         while (m_FrameNum == m_lastFrameNum && m_decoding.load() && !m_videoCameraOver.load()) {
             m_condVari.wait_for(lk, std::chrono::milliseconds(200));
         }
