@@ -31,6 +31,7 @@ class QSoundEffect;     //警报音播放（Qt Multimedia）
 
 class Detection;
 struct DetectConfig;     // 打包助手 packDetectConfig() 的返回类型（定义见 Detection.h）
+class AlarmReporter;     // 报警外发客户端（TCP 自定义协议 → server/ 子工程的统计平台）
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -87,6 +88,8 @@ private slots:
     void do_frameReady(const QImage &img);                          //显示检测画面
     void do_resultReady(const std::vector<DetectionResult> &r);     //结果写日志
     void do_targetDetected();                                       //警报（带 5 秒冷却）
+    void do_alarmTriggered(const std::vector<DetectionResult> &r);  //报警外发：打包明细发服务端
+    void do_reporterOnlineChanged(bool online);                     //平台连接状态提示
     void do_errorOccurred(const QString &msg);                      //红字日志 + 按钮复位
     void do_sourceFinished();                                       //源播完 + 按钮复位
     void do_sourceOpened(const QString &desc);                      //日志
@@ -137,6 +140,10 @@ private:
     // ---- 警报（QSoundEffect 只支持 wav；5 秒冷却防止连响）----
     QSoundEffect *m_JingBao = nullptr;
     QElapsedTimer m_JingBaoLengQue;
+
+    // ---- 报警外发（连 server/ 子工程的统计平台，不在也不影响本地检测）----
+    AlarmReporter *m_Reporter = nullptr;
+    bool m_reporterWasOnline = false;   // 只在"在线→掉线"时记一条日志（避免重试期间刷屏）
 };
 
 #endif //FIRESMOKEDETECTIONZCODE_MAINWINDOW_H

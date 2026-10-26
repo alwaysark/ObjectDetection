@@ -11,6 +11,7 @@ Detection::Detection(QObject* parent) : QThread(parent) {
     // 写一次即可，所有连接都受益
     qRegisterMetaType<DetectionResult>("DetectionResult");
     qRegisterMetaType<std::vector<DetectionResult>>("std::vector<DetectionResult>");
+    m_lastReport.invalidate();    // 计时器置"无效"：第一次报警立刻可发
 }
 
 Detection::~Detection() {
@@ -188,7 +189,13 @@ void Detection::run() {
             // 警报：连续 10 帧检出任意目标 → 发警报信号
             if (!results.empty()) {
                 if (++m_alarmStreak >= 10) {
-                    emit targetDetected();
+                    emit targetDetected();          // 警报音另有 5 秒冷却（UI 层管）
+                    // 上报有 2 秒冷却：持续目标在画面里时 streak 每 10 帧就重新满，
+                    // 没冷却会每 0.4s 刷一条上报（轰炸服务端曲线/落库，同机跑还挤占推理 CPU）
+                    if (!m_lastReport.isValid() || m_lastReport.elapsed() >= 2000) {
+                        m_lastReport.restart();
+                        emit alarmTriggered(results);   // 带上检出明细：报警外发服务端用
+                    }
                     m_alarmStreak = 0;
                 }
             } else {

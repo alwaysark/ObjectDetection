@@ -34,6 +34,11 @@
 #include <QRegularExpression>
 
 #include "Detection.h"
+#include "AlarmReporter.h"
+
+// 报警统计平台地址（server/ 子工程默认监听本机 9000；连远程平台改这里）
+static const QString kServerHost = QStringLiteral("127.0.0.1");
+static const quint16 kServerPort = 9000;
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_Detection = new Detection(this);      // 父对象机制：主窗口销毁时自动 delete
@@ -46,6 +51,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
             QCoreApplication::applicationDirPath() + "/need/JingBao/alarm.wav"));
     m_JingBao->setVolume(0.9f);
     m_JingBaoLengQue.invalidate();          // 计时器先置为"无效"，第一次警报立刻可响
+
+    // 报警外发：连 server/ 子工程的报警统计平台（默认本机 9000 端口）。
+    // 连不上 5 秒自动重连，平台在不在都不影响本地检测；地址见文件顶部的 kServerHost/kServerPort
+    m_Reporter = new AlarmReporter(this);
+    connect(m_Reporter, &AlarmReporter::connectedChanged, this, &MainWindow::do_reporterOnlineChanged);
+    m_Reporter->connectToServer(kServerHost, kServerPort);
 
     loadConfig();                           // 恢复上次的界面设置
 
@@ -259,6 +270,7 @@ void MainWindow::bindSignal() {
     connect(m_Detection, &Detection::frameReady,     this, &MainWindow::do_frameReady);
     connect(m_Detection, &Detection::resultReady,    this, &MainWindow::do_resultReady);
     connect(m_Detection, &Detection::targetDetected, this, &MainWindow::do_targetDetected);
+    connect(m_Detection, &Detection::alarmTriggered, this, &MainWindow::do_alarmTriggered);
     connect(m_Detection, &Detection::errorOccurred,  this, &MainWindow::do_errorOccurred);
     connect(m_Detection, &Detection::sourceFinished, this, &MainWindow::do_sourceFinished);
     connect(m_Detection, &Detection::sourceOpened,   this, &MainWindow::do_sourceOpened);
@@ -572,6 +584,32 @@ void MainWindow::do_targetDetected() {
     displayLog("警告：检测到目标！", "red");
 }
 
+// 报警外发：检测线程 alarmTriggered 传来明细 → 打包 AlarmRecord 发统计平台。
+// 未在线时 AlarmReporter 内部静默丢弃，本地检测不受影响
+void MainWindow::do_alarmTriggered(const std::vector<DetectionResult> &r) {
+    if (r.empty()) return;
+    AlarmRecord rec;
+    rec.time  = QDateTime::currentDateTime();
+    rec.count = static_cast<int>(r.size());
+    QStringList labels;                       // 去重后的类别名
+    for (const auto& d : r) {
+        const QString name = QString::fromStdString(d.label);
+        if (!labels.contains(name)) labels << name;
+        if (d.score > rec.score) rec.score = d.score;   // 顺手挑最高置信度
+    }
+    rec.label = labels.join(", ");
+    m_Reporter->reportAlarm(rec);
+}
+
+// 平台连接状态：只在"在线→掉线"时记掉线日志（重试期间每次失败都记会刷屏）
+void MainWindow::do_reporterOnlineChanged(bool online) {
+    if (online)
+        displayLog(QString("已连接报警统计平台 (%1:%2)").arg(kServerHost).arg(kServerPort));
+    else if (m_reporterWasOnline)
+        displayLog("报警统计平台连接断开，5 秒后自动重连");
+    m_reporterWasOnline = online;
+}
+
 void MainWindow::do_errorOccurred(const QString &msg) {
     displayLog(msg, "red");
     setRunningUi(false);
@@ -670,6 +708,7 @@ void MainWindow::closeEvent(QCloseEvent *event) {
         }
     }
     saveConfig();
+    m_Reporter->disconnectFromServer();   // 主动断开统计平台（抑制自动重连）
     m_Detection->StopThread();   // 通知线程退出并等它收尾
     m_Detection->wait();         // 等它收完尾（最多约 200ms）
     event->accept();

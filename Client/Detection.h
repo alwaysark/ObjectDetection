@@ -24,6 +24,7 @@
 #include <QThread>
 #include <QImage>
 #include <QString>
+#include <QElapsedTimer>
 #include <QMetaType>
 #include <atomic>
 #include <mutex>
@@ -81,6 +82,7 @@ signals:
     void frameReady(const QImage& img);                       // → 界面显示
     void resultReady(const std::vector<DetectionResult>& r);  // → 界面日志
     void targetDetected();                                    // → 警报（连续 10 帧检出任意目标）
+    void alarmTriggered(const std::vector<DetectionResult>& r); // → 报警外发服务端（随警报附带检出明细）
     void errorOccurred(const QString& msg);                   // → 红字日志 + 按钮复位
     void sourceFinished();                                    // → 日志 + 按钮复位
     void sourceOpened(const QString& desc);                   // → 日志
@@ -126,6 +128,7 @@ private:
 
     // ---- 警报连击计数（连续 10 帧检出任意目标响一次）----
     int m_alarmStreak = 0;
+    QElapsedTimer m_lastReport;   // 报警上报冷却（持续目标时 streak 每 10 帧就满，防 0.4s 刷一条）
 
     // ---- 录像：文件写入只在检测线程；开关/帧率/目录是热参数（UI 写、run 读）----
     cv::VideoWriter m_writer;
