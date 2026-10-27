@@ -119,7 +119,7 @@ bool VideoSource::read(cv::Mat& frame) {
 
     cv::Mat out;
     if (m_isImage) {
-        // 图片只交付一次
+        // read是在检测线程的run循环中被调用，图片交付一次之后就把标志位m_imageOver置为false，下一次循环就检测结束
         if (m_imageOver) return false;
         out = m_image.clone();
         m_imageOver = true;

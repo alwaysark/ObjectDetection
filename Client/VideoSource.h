@@ -70,7 +70,7 @@ private:
     uint64_t         m_FrameNum = 0;            // 帧号：解码线程每存一帧 +1
     uint64_t         m_lastFrameNum = 0;        // read() 上一次交付出去的帧号
     std::atomic_bool m_decoding{false};   // 解码线程开关
-    std::atomic_bool m_videoCameraOver{false};        // 源已读完（视频到尾/图片已交付）
+    std::atomic_bool m_videoCameraOver{false};        // 源已读完（视频到尾）
 
     std::atomic_int  m_flip{0};           // 翻转下拉框索引（热更新）
     std::atomic_int  m_rotate{0};         // 旋转下拉框索引（热更新）

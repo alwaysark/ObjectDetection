@@ -383,7 +383,6 @@ void MainWindow::do_XuanZeWenJian_clicked() {
 }
 
 // 选择权重：选完顺手找同名类别文件自动填（M0.9.onnx → M0.9.txt）。
-// 用 completeBaseName 保留 "M0.9" 的点号 —— Python 版 split('.') 会把点号当分隔符丢掉
 void MainWindow::do_XuanZeQuanZhong_clicked() {
     const QString path = QFileDialog::getOpenFileName(this, "选择模型",
             m_QuanZhong->text(), "ONNX 模型 (*.onnx)");
@@ -391,7 +390,7 @@ void MainWindow::do_XuanZeQuanZhong_clicked() {
     m_QuanZhong->setText(path);
 
     const QFileInfo info(path);
-    const QString base = info.completeBaseName();
+    const QString base = info.completeBaseName();// 用 completeBaseName 保留 "M0.9" 的点号
     const QStringList candidates {
             info.dir().filePath(base + ".txt"),            // 和模型同目录
             info.dir().filePath("../" + base + ".txt"),    // 或上一级

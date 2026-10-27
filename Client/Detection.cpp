@@ -139,7 +139,7 @@ void Detection::run() {
 
     while (m_isRunning.load()) {
         // ===== ① 消费换源请求 =====
-        if (m_srcRequested.load()) applySourceRequest();
+        if (m_srcRequested.load()) applySourceRequest();    //消费换源里面调用VideoSource::open,open里面创建解码线程
 
         // ===== ② 无源待命：睡 50ms 等请求，不空转烧 CPU =====
         if (!m_Source) {
